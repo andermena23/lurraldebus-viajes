@@ -8,8 +8,14 @@
   const addDays = (s, n) => { const d = new Date(s + "T12:00:00"); d.setDate(d.getDate() + n); return ymd(d); };
   const nowStr = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const toMin = (hhmm) => (hhmm ? Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)) : 0);
-  const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
-  const color = (name) => `hsl(${hue(name)} 55% 38%)`;
+  // Color estable por línea: hash FNV-1a sobre una paleta con buen contraste con texto blanco.
+  const PALETTE = ["#2563b0", "#b4531a", "#8e3a9d", "#0f7a6b", "#c2375b", "#5b52c4",
+    "#8a6d00", "#0b7a9e", "#a33b2a", "#3d5a80", "#9c2f7e", "#6b7a1f"];
+  const color = (name) => {
+    let h = 2166136261;
+    for (const c of name) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+    return PALETTE[(h >>> 0) % PALETTE.length];
+  };
   const clock = (min) => { const f = LB.fmt(min); return f.text + (f.day ? `<sup>${f.day > 0 ? "+1" : "−1"}</sup>` : ""); };
   const clockText = (min) => LB.fmt(min).text;
   const dmy = (n) => `${String(n).slice(6)}/${String(n).slice(4, 6)}/${String(n).slice(0, 4)}`;

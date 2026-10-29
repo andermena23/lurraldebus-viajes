@@ -33,5 +33,5 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(req)
       .then((r) => { const copy = r.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); return r; })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html"))));
+      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match("index.html"))));
 });

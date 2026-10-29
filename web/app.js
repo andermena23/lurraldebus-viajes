@@ -31,6 +31,11 @@
 
   const RKEY = "lb-recent";
   const loadRecent = () => { try { return JSON.parse(localStorage.getItem(RKEY)) || []; } catch (e) { return []; } };
+  // Viajes guardados: rutas favoritas (municipios + paradas por nombre, que no cambian entre actualizaciones de datos).
+  const SKEY = "lb-saved";
+  const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SKEY)) || []; } catch (e) { return []; } };
+  const storeSaved = (l) => { try { localStorage.setItem(SKEY, JSON.stringify(l)); } catch (e) {} };
+  const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
     if (s === t) return "Hoy";
@@ -96,12 +101,58 @@
     $("pdone").addEventListener("click", () => { setCollapsed(true); out.scrollIntoView({ block: "start" }); });
     $("form").addEventListener("combo-done", () => setCollapsed(true));
     $("recent").addEventListener("click", onRecent);
+    $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
     // "Ahora" en vivo: refresca cada minuto y al volver a la pestaña
     setInterval(tick, 30000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
     setCollapsed(true);
     run({ initial: true });
+  }
+
+  function stopName(selId) {
+    const sel = $(selId);
+    return sel.value ? sel.selectedOptions[0].dataset.name : "";
+  }
+  const currentRoute = () => ({ o: $("o").selectedOptions[0].text, d: $("d").selectedOptions[0].text, os: stopName("os"), ds: stopName("ds") });
+  const isSaved = () => loadSaved().some((r) => routeKey(r) === routeKey(currentRoute()));
+
+  function toggleSaved() {
+    const cur = currentRoute();
+    const list = loadSaved();
+    const i = list.findIndex((r) => routeKey(r) === routeKey(cur));
+    if (i >= 0) list.splice(i, 1);
+    else list.unshift(cur);
+    storeSaved(list.slice(0, 12));
+    render();
+  }
+
+  function renderSaved() {
+    const cur = routeKey(currentRoute());
+    const items = loadSaved().filter((r) => data.munis.includes(r.o) && data.munis.includes(r.d));
+    const box = $("saved");
+    box.hidden = !items.length;
+    box.innerHTML = items.map((r, i) => {
+      const stops = [r.os, r.ds].filter(Boolean).join(" → ");
+      return `<button type="button" class="schip" data-saved="${i}" aria-pressed="${routeKey(r) === cur}" title="${esc(r.o)} → ${esc(r.d)}${stops ? " (" + esc(stops) + ")" : ""}"><span class="st">★</span>${esc(r.o)} → ${esc(r.d)}${stops ? " <small>· paradas</small>" : ""}</button>`;
+    }).join("");
+  }
+
+  function onSaved(e) {
+    const b = e.target.closest("[data-saved]");
+    if (!b) return;
+    const items = loadSaved().filter((r) => data.munis.includes(r.o) && data.munis.includes(r.d));
+    const r = items[Number(b.dataset.saved)];
+    if (!r) return;
+    $("o").value = data.munis.indexOf(r.o);
+    $("d").value = data.munis.indexOf(r.d);
+    refreshStops(null, null);
+    for (const [id, name] of [["os", r.os], ["ds", r.ds]]) {
+      const opt = name && [...$(id).options].find((o) => o.dataset.name === name);
+      if (opt) $(id).value = opt.value;
+    }
+    setCollapsed(true);
+    run();
   }
 
   function setCollapsed(c) {
@@ -279,6 +330,7 @@
     }
     if ((el = t.closest("[data-line]"))) { state.line = el.dataset.line; state.tab = "trips"; save(); return render(); }
     if (t.closest("[data-allday]")) return $("allday").click();
+    if (t.closest("[data-star]")) return toggleSaved();
     if ((el = t.closest("[data-share]"))) share(el);
   }
 
@@ -330,6 +382,7 @@
     $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
     $("psum-when").textContent = `${shortDay(date)} · ${$("time").value ? "desde " + $("time").value : "todo el día"}`;
     renderRecent();
+    renderSaved();
   }
 
   const lineNames = (r) => r.legs.map((l) => eng.line(l.route).name);
@@ -394,7 +447,7 @@
         <h2>${esc(data.munis[q.origin])}${stopTxt($("os"))}<span class="arr">→</span>${esc(data.munis[q.dest])}${stopTxt($("ds"))}</h2>
         <p class="muted" style="margin:2px 0 0">${dayLabel(q.date)}${q.holiday ? " · festivo" : ""}</p></div>
         <div class="kpis">${kpis.join("")}</div>
-        <button type="button" class="copy" data-share>Compartir</button></div>${outside}`;
+        <div class="actions"><button type="button" class="star" data-star aria-pressed="${isSaved()}" title="${isSaved() ? "Quitar de guardados" : "Guardar este viaje"}">${isSaved() ? "★ Guardado" : "☆ Guardar"}</button><button type="button" class="copy" data-share>Compartir</button></div></div>${outside}`;
   }
 
   function tabsHtml() {

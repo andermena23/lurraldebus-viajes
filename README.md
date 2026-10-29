@@ -20,6 +20,8 @@ servicios del día**, con salida, llegada y duración claras, y deja compararlos
   alternativas).
 - Día anterior/siguiente, Hoy/Mañana, "desde las" y "Ahora" en vivo (se actualiza cada minuto).
 - Interruptor de **festivo** (aplica el horario de domingo).
+- **Viajes guardados**: la estrella ☆ guarda la ruta (con las paradas que hayas elegido) y aparece en una tira bajo el
+  buscador para abrirla con un toque. Se guardan en el navegador, no se sincronizan entre dispositivos.
 - Tema claro, oscuro o automático. Recientes, enlaces compartibles y diseño pensado para móvil.
 - Instalable como app y con los horarios disponibles **sin conexión** (PWA).
 

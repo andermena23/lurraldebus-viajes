@@ -121,6 +121,15 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .kpi span { font-size: .72rem; color: var(--muted); }
 .kpi.good b { color: var(--good); }
 .copy { min-height: 36px; font-size: .8rem; padding: 4px 12px; }
+.actions { display: flex; gap: 8px; align-items: center; }
+.star { min-height: 36px; font-size: .85rem; padding: 4px 14px; border-radius: 999px; white-space: nowrap; }
+.star[aria-pressed=true] { background: var(--brand); border-color: var(--brand); color: #16210a; font-weight: 700; }
+.saved { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.schip { flex: none; min-height: 38px; padding: 4px 14px; border-radius: 999px; font-size: .9rem; display: inline-flex; gap: 6px; align-items: center; }
+.schip .st { color: #d49a00; }
+.schip small { color: var(--muted); }
+.schip[aria-pressed=true] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.schip[aria-pressed=true] small { color: inherit; opacity: .75; }
 
 /* pestañas y barras */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 12px; }
@@ -238,7 +247,9 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .summary { gap: 8px 12px; margin-top: 16px; }
   .summary .title { flex: 1 1 0; }
   .summary h2 { font-size: 1.25rem; }
-  .copy { order: 1; }
+  .actions { order: 1; }
+  .saved { flex-wrap: nowrap; overflow-x: auto; margin: 12px -12px 0; padding: 2px 12px 4px; scrollbar-width: none; }
+  .saved::-webkit-scrollbar { display: none; }
   .kpis { order: 2; width: 100%; flex-wrap: nowrap; }
   .kpi { flex: 1; min-width: 0; padding: 8px 10px; }
   .tabs button { flex: 1; padding: 12px 8px; }

@@ -19,6 +19,12 @@
   const clock = (min) => { const f = LB.fmt(min); return f.text + (f.day ? `<sup>${f.day > 0 ? "+1" : "−1"}</sup>` : ""); };
   const clockText = (min) => LB.fmt(min).text;
   const dmy = (n) => `${String(n).slice(6)}/${String(n).slice(4, 6)}/${String(n).slice(0, 4)}`;
+  // "Uk01-azkoitia>azpeitia>zestoa" -> "Azkoitia › Azpeitia › Zestoa" (sin el código repetido y con espacios para poder partir línea)
+  const longName = (li) => {
+    const code = li.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return li.long.replace(new RegExp("^" + code + "\\s*-\\s*", "i"), "")
+      .split(">").map((x) => x.trim()).filter(Boolean).map((x) => x[0].toUpperCase() + x.slice(1)).join(" › ");
+  };
   const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${pad(m % 60)} min` : `${m} min`);
   const dayFmt = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
   const dayLabel = (s) => { const t = dayFmt.format(new Date(s + "T12:00:00")); return t[0].toUpperCase() + t.slice(1); };
@@ -392,7 +398,7 @@
     const by = new Map();
     for (const r of direct) {
       const l = eng.line(r.legs[0].route);
-      if (!by.has(l.name)) by.set(l.name, { name: l.name, agency: l.agency, long: l.long, deps: [], durs: [] });
+      if (!by.has(l.name)) by.set(l.name, { name: l.name, agency: l.agency, long: longName(l), deps: [], durs: [] });
       by.get(l.name).deps.push(r.dep); by.get(l.name).durs.push(r.dur);
     }
     return [...by.values()].map((s) => {
@@ -508,7 +514,7 @@
     const inMin = nowMin != null && r.dep >= nowMin && r.dep - nowMin <= 180 ? r.dep - nowMin : null;
     const wait = r.transfers ? r.legs[1].dep - r.legs[0].arr : 0;
     const soon = !r.transfers && inMin != null;
-    const note = r.transfers ? `cambio en ${eng.stopMuni(first.to)} · ${wait} min`
+    const note = r.transfers ? `1 cambio · ${wait} min`
       : soon ? (inMin === 0 ? "sale ahora" : `sale en ${inMin} min`) : "";
     const detail = r.legs.map((l, k) => {
       const t = data.trips[l.trip];
@@ -520,15 +526,15 @@
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-      return `${gap}<h3>${badge(li.name)} <span>${esc(li.long)}</span></h3><ol>${rows.join("")}</ol>`;
+      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
-      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
+      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
       <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}</span><span>${esc(ops)}</span></div>
+      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span><span class="op">${esc(ops)}</span></div>
       </summary><div class="detail">${detail}</div></details>`;
   }
 

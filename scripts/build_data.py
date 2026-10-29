@@ -35,6 +35,7 @@ FEEDS = {
     2737: ("Oñati Herribusa", "Oñati"),
     2756: ("Euskotren Bus", None),
     2757: ("Tolosa-Buruntzaldea", None),
+    2776: ("Pesa (Debagoiena)", None),
     2758: ("Tolosa Hiribusa", "Tolosa"),
     2759: ("Errenteria urbano", "Errenteria"),
     2760: ("Lasarte-Oria urbano", "Lasarte-Oria"),

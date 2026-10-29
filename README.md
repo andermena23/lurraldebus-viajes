@@ -5,7 +5,7 @@ Web estática para consultar y comparar los autobuses de Lurraldebus (Gipuzkoa) 
 claras, duración, tabla comparativa por línea, paradas intermedias y combinaciones con un trasbordo.
 
 ## Datos
-Los GTFS oficiales de los 16 operadores de Lurraldebus, publicados en el Punto de Acceso Nacional de
+Los GTFS oficiales de los 17 operadores de Lurraldebus, publicados en el Punto de Acceso Nacional de
 Transporte (NAP, licencia abierta). El NAP exige API key, así que `scripts/build_data.py` los baja del
 espejo diario de [MobilityDatabase](https://mobilitydatabase.org) y genera `web/data/network.json`.
 Un workflow de GitHub Actions (`.github/workflows/update-data.yml`) lo regenera cada día y hace commit si cambia.
@@ -13,7 +13,8 @@ Un workflow de GitHub Actions (`.github/workflows/update-data.yml`) lo regenera 
 Limitaciones:
 - Son horarios programados, **sin tiempo real**.
 - Los feeds no traen calendario de festivos: hay un check "Festivo" que aplica el horario de domingo.
-- Cobertura = lo que publica el NAP; hoy no incluye, por ejemplo, Bergara.
+- Cobertura = lo que publica el NAP. Hoy cubre casi todos los municipios del selector oficial; faltan los aeropuertos
+  (Loiu y Hondarribia, que aparecen como paradas dentro de su municipio) y Arratzua-Ubarrundia.
 - La llegada se cuenta en la primera parada del municipio destino; elige parada concreta si quieres otra.
 
 ## Uso

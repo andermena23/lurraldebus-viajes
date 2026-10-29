@@ -43,14 +43,6 @@
         <label>Destino <select id="d"></select></label>
       </div>
 
-      <details class="stops" id="stops">
-        <summary>Paradas concretas <small>(opcional)</small></summary>
-        <div class="stops-grid">
-          <label>Parada de origen <select id="os" class="stop"></select></label>
-          <label>Parada de destino <select id="ds" class="stop"></select></label>
-        </div>
-      </details>
-
       <div class="when">
         <div class="field">
           <span class="lbl">Día</span>
@@ -61,7 +53,7 @@
           </div>
         </div>
         <div class="field">
-          <span class="lbl">&nbsp;</span>
+          <span class="lbl nolbl">&nbsp;</span>
           <div class="seg" id="dayq">
             <button type="button" data-day="0">Hoy</button>
             <button type="button" data-day="1">Mañana</button>
@@ -72,7 +64,7 @@
           <input type="time" id="time" aria-label="Hora de salida mínima">
         </div>
         <div class="field">
-          <span class="lbl">&nbsp;</span>
+          <span class="lbl nolbl">&nbsp;</span>
           <div class="seg">
             <button type="button" id="now">Ahora</button>
             <button type="button" id="allday">Todo el día</button>
@@ -80,10 +72,17 @@
         </div>
       </div>
 
-      <div class="opts">
-        <label class="toggle"><input type="checkbox" id="transfers" checked><span>Incluir trasbordos</span></label>
-        <label class="toggle"><input type="checkbox" id="holiday"><span>Festivo <small>(horario de domingo)</small></span></label>
-      </div>
+      <details class="more" id="more">
+        <summary>Más opciones <small>paradas, trasbordos, festivo</small></summary>
+        <div class="stops-grid">
+          <label>Parada de origen <select id="os" class="stop"></select></label>
+          <label>Parada de destino <select id="ds" class="stop"></select></label>
+        </div>
+        <div class="opts">
+          <label class="toggle"><input type="checkbox" id="transfers" checked><span>Incluir trasbordos</span></label>
+          <label class="toggle"><input type="checkbox" id="holiday"><span>Festivo <small>(horario de domingo)</small></span></label>
+        </div>
+      </details>
 
       <div class="recent" id="recent" hidden></div>
 

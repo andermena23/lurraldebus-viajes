@@ -32,6 +32,7 @@
   let eng, data, last = null;
   const state = { tab: "trips", sort: "dep", line: null };
   const out = $("out");
+  let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
   let live = false; // true mientras "Desde las" sigue a la hora actual
   const mobile = matchMedia("(max-width: 700px)");
 
@@ -342,9 +343,15 @@
 
   function share(btn) {
     const url = location.href;
-    const flash = (txt) => { const old = btn.textContent; btn.textContent = txt; setTimeout(() => { btn.textContent = old; }, 2000); };
+    const t = btn.querySelector(".t");
+    const flash = (txt) => {
+      const old = t.textContent;
+      t.textContent = txt;
+      btn.classList.add("flash");
+      setTimeout(() => { t.textContent = old; btn.classList.remove("flash"); }, 2000);
+    };
     if (navigator.share) navigator.share({ title: document.title, url }).catch(() => {});
-    else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash("¡Enlace copiado!"), () => flash("No se pudo copiar"));
+    else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash(mobile.matches ? "✓ Copiado" : "¡Enlace copiado!"), () => flash("No se pudo copiar"));
   }
 
   function run(opts = {}) {
@@ -384,9 +391,10 @@
     $("allday").setAttribute("aria-pressed", String($("time").value === ""));
     for (const b of $("dayq").querySelectorAll("[data-day]"))
       b.setAttribute("aria-pressed", String(date === addDays(today, Number(b.dataset.day))));
-    if ($("os").value || $("ds").value) $("stops").open = true;
+    if ($("os").value || $("ds").value || $("holiday").checked || !$("transfers").checked) $("more").open = true;
     $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
-    $("psum-when").textContent = `${shortDay(date)} · ${$("time").value ? "desde " + $("time").value : "todo el día"}`;
+    const stops = [stopName("os"), stopName("ds")].filter(Boolean).join(" → ");
+    $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops].filter(Boolean).join(" · ");
     renderRecent();
     renderSaved();
   }
@@ -426,6 +434,8 @@
       arr: (a, b) => a.arr - b.arr || a.dur - b.dur,
       dur: (a, b) => a.dur - b.dur || a.dep - b.dep,
     }[state.sort];
+    const ops = new Set([...res.direct, ...res.transfer].flatMap((r) => r.legs.map((l) => eng.line(l.route).agency)));
+    oneOp = ops.size === 1 ? [...ops][0] : null;
     const direct = res.direct.filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
     const trans = (q.transfers ? res.transfer : []).filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
 
@@ -435,25 +445,33 @@
 
   function summaryHtml(q, res, nowMin) {
     const stopTxt = (sel) => (sel.value ? ` <span class="muted">(${esc(sel.selectedOptions[0].dataset.name)})</span>` : "");
-    const kpis = [];
+    const kpis = [], brief = [];
     if (res.direct.length) {
+      const fast = Math.min(...res.direct.map((r) => r.dur));
       kpis.push(`<div class="kpi"><b>${res.direct.length}</b><span>servicios directos</span></div>`);
-      kpis.push(`<div class="kpi good"><b>${Math.min(...res.direct.map((r) => r.dur))} min</b><span>el más rápido</span></div>`);
+      kpis.push(`<div class="kpi good"><b>${fast} min</b><span>el más rápido</span></div>`);
+      brief.push(`${res.direct.length} directos`, `el más rápido, ${fast} min`);
     } else if (res.transfer.length) {
       kpis.push(`<div class="kpi"><b>${res.transfer.length}</b><span>con trasbordo</span></div>`);
+      brief.push(`${res.transfer.length} con trasbordo`);
     }
     if (nowMin != null) {
       const nxt = [...res.direct, ...(res.direct.length ? [] : res.transfer)].filter((r) => r.dep >= nowMin).sort((a, b) => a.dep - b.dep)[0];
-      if (nxt) kpis.push(`<div class="kpi"><b>${nxt.dep - nowMin} min</b><span>próxima salida</span></div>`);
+      if (nxt) {
+        kpis.push(`<div class="kpi"><b>${nxt.dep - nowMin} min</b><span>próxima salida</span></div>`);
+        brief.unshift(`<b class="soon">${nxt.dep === nowMin ? "Sale ahora" : `Próximo en ${nxt.dep - nowMin} min`}</b>`);
+      }
     }
     const dateInt = Number(q.date.replaceAll("-", ""));
     const outside = dateInt < data.validFrom || dateInt > data.validTo
       ? `<p class="notice">Ese día queda fuera del periodo con horarios publicados (${dmy(data.validFrom)} – ${dmy(data.validTo)}).</p>` : "";
+    const saved = isSaved();
     return `<div class="summary"><div class="title">
         <h2>${esc(data.munis[q.origin])}${stopTxt($("os"))}<span class="arr">→</span>${esc(data.munis[q.dest])}${stopTxt($("ds"))}</h2>
-        <p class="muted" style="margin:2px 0 0">${dayLabel(q.date)}${q.holiday ? " · festivo" : ""}</p></div>
+        <p class="muted when-line">${dayLabel(q.date)}${q.holiday ? " · festivo" : ""}${oneOp ? ` · ${esc(oneOp)}` : ""}</p></div>
         <div class="kpis">${kpis.join("")}</div>
-        <div class="actions"><button type="button" class="star" data-star aria-pressed="${isSaved()}" title="${isSaved() ? "Quitar de guardados" : "Guardar este viaje"}">${isSaved() ? "★ Guardado" : "☆ Guardar"}</button><button type="button" class="copy" data-share>Compartir</button></div></div>${outside}`;
+        <div class="actions"><button type="button" class="star" data-star aria-pressed="${saved}" aria-label="${saved ? "Quitar de guardados" : "Guardar este viaje"}" title="${saved ? "Quitar de guardados" : "Guardar este viaje"}"><span class="ic" aria-hidden="true">${saved ? "★" : "☆"}</span><span class="t">${saved ? "Guardado" : "Guardar"}</span></button><button type="button" class="copy" data-share aria-label="Compartir enlace"><span class="ic" aria-hidden="true">↗</span><span class="t">Compartir</span></button></div>
+        <p class="brief">${brief.join(" · ")}</p></div>${outside}`;
   }
 
   function tabsHtml() {
@@ -534,7 +552,7 @@
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
       <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span><span class="op">${esc(ops)}</span></div>
+      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
       </summary><div class="detail">${detail}</div></details>`;
   }
 

@@ -69,13 +69,14 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px s
 .combo-list li.active { background: var(--accent); color: var(--accent-ink); }
 .combo-list li[aria-selected=true]:not(.active) { font-weight: 700; }
 .combo-list li.none { color: var(--muted); cursor: default; }
-.stops { margin-top: 14px; }
-.stops > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--accent); padding: 8px 0; list-style: none; }
-.stops > summary::-webkit-details-marker { display: none; }
-.stops > summary::before { content: "▸ "; }
-.stops[open] > summary::before { content: "▾ "; }
-.stops > summary small { color: var(--muted); font-weight: 400; }
-.stops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px; }
+.more { margin-top: 18px; }
+.more > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--accent); padding: 8px 0; list-style: none; }
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary::before { content: "▸ "; }
+.more[open] > summary::before { content: "▾ "; }
+.more > summary small { color: var(--muted); font-weight: 400; }
+.more .opts { margin-top: 14px; }
+.stops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
 select.stop { font-size: .92rem; }
 /* barra compacta (solo móvil) y botón "Ver resultados" */
 .psum { display: none; width: 100%; min-height: 58px; padding: 8px 14px; border: 0; border-radius: 8px; background: transparent; text-align: left; align-items: center; gap: 12px; }
@@ -121,6 +122,9 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .kpi span { font-size: .72rem; color: var(--muted); }
 .kpi.good b { color: var(--good); }
 .copy { min-height: 36px; font-size: .8rem; padding: 4px 12px; }
+.brief, .copy .ic { display: none; }
+.star .ic { margin-right: .35em; }
+.when-line { margin: 2px 0 0; }
 .actions { display: flex; gap: 8px; align-items: center; }
 .star { min-height: 36px; font-size: .85rem; padding: 4px 14px; border-radius: 999px; white-space: nowrap; }
 .star[aria-pressed=true] { background: var(--brand); border-color: var(--brand); color: #16210a; font-weight: 700; }
@@ -233,9 +237,8 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   h1 { font-size: 1.2rem; }
   h1 span.sub { display: block; margin: 0; }
   #validity { display: none; }
-  .band { height: 96px; }
-  .band-in { padding: 22px 14px 0; }
-  .panel { padding: 18px 16px; margin-top: -22px; }
+  .band { display: none; }
+  .panel { padding: 18px 16px; margin-top: 12px; }
   .panel.collapsed { position: sticky; top: 8px; z-index: 30; padding: 0; }
   .panel.collapsed .pfull { display: none; }
   .panel.collapsed .psum { display: flex; }
@@ -243,13 +246,22 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .route { grid-template-columns: 1fr; gap: 10px; }
   .route > button { margin: 0; justify-self: center; transform: rotate(90deg); }
   .stops-grid { grid-template-columns: 1fr; }
-  .when { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; margin-top: 16px; }
-  .when .field:first-child, .when .field:nth-child(4) { grid-column: 1 / -1; }
+  /* día (con su acceso rápido) y hora: dos bloques con aire entre ellos */
+  .when { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px 12px; margin-top: 22px; align-items: end; }
+  .when .field:nth-child(1), .when .field:nth-child(2) { grid-column: 1 / -1; }
+  .when .field:nth-child(3) { margin-top: 12px; }
+  .when .field:nth-child(4) { margin-top: 12px; }
+  .nolbl { display: none; }
   .daynav input { width: 100%; flex: 1; min-width: 0; }
   .field input[type=time], .field .seg { width: 100%; }
-  .field .seg button { flex: 1; }
-  .opts { margin-top: 16px; }
-  .recent { margin-top: 16px; }
+  .field .seg button { flex: 1; padding: 6px 8px; }
+  .when .field:nth-child(4) .seg button { font-size: .9rem; }
+  .more { margin-top: 20px; border-top: 1px solid var(--line); }
+  .more > summary { padding: 14px 0 6px; }
+  .more .stops-grid { margin-top: 10px; }
+  .more .opts { margin-top: 16px; }
+  .recent { margin-top: 22px; }
+  .done { margin-top: 22px; }
 
   /* tiras con scroll horizontal: se desvanecen al borde para indicar que hay más */
   .saved, .chips { flex-wrap: nowrap; overflow-x: auto; margin-left: -14px; margin-right: -14px; padding: 2px 14px 6px; scrollbar-width: none;
@@ -258,24 +270,31 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .saved { margin-top: 16px; }
   .lchip { flex: none; min-height: 38px; }
 
-  /* resumen: título, acciones y KPIs en filas propias para que nada se pise */
-  .summary { gap: 12px; margin-top: 22px; }
-  .summary .title { flex: 1 1 100%; }
-  .summary h2 { font-size: 1.3rem; }
-  .actions { order: 1; width: 100%; }
-  .actions .star, .actions .copy { flex: 1; min-height: 42px; font-size: .9rem; }
-  .kpis { order: 2; width: 100%; flex-wrap: nowrap; gap: 8px; }
-  .kpi { flex: 1; min-width: 0; padding: 10px; }
-  .tabs { margin: 18px 0 14px; }
+  /* resumen: una sola línea de contexto + acciones como iconos, y una frase con lo importante (sin cajas de KPI) */
+  .summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; margin-top: 20px; }
+  .summary .title { grid-column: 1; }
+  .summary h2 { display: none; }
+  .when-line { margin: 0; font-size: 1rem; font-weight: 600; color: var(--ink); line-height: 1.3; }
+  .kpis { display: none; }
+  .actions { grid-column: 2; grid-row: 1; width: auto; gap: 8px; }
+  .actions .star, .actions .copy { min-height: 44px; min-width: 44px; padding: 4px 12px; font-size: 1.15rem; border-radius: 12px; }
+  .actions .t, .star .t { display: none; }
+  .star .ic { margin: 0; }
+  .copy .ic { display: inline; }
+  .copy.flash .t { display: inline; font-size: .85rem; }
+  .copy.flash .ic { display: none; }
+  .brief { display: block; grid-column: 1 / -1; margin: 0; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-size: .92rem; color: var(--muted); line-height: 1.4; }
+  .brief .soon { color: var(--accent); }
+  .tabs { margin: 24px 0 18px; }
   .tabs button { flex: 1; padding: 12px 6px; }
-  .toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+  .toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-bottom: 8px; }
   .sort { width: 100%; }
   .sort .seg { flex: 1; }
   .sort .seg button { flex: 1; min-height: 40px; }
 
   /* tarjeta de viaje: fila 1 = líneas + "Próximo" + operador; fila 2 = horas; sin nada que se pise */
-  .trip { margin-bottom: 10px; }
-  .trip > summary { grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); gap: 10px 8px; padding: 14px 12px; }
+  .trip { margin-bottom: 14px; }
+  .trip > summary { grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); gap: 14px 8px; padding: 16px 14px; }
   .who { order: -1; grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; text-align: left; gap: 8px; }
   .who .lines { flex: none; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 6px; }
   .who .op { flex: 1; min-width: 0; text-align: right; font-size: .8rem; line-height: 1.2; }
@@ -284,8 +303,11 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .clk { font-size: 1.5rem; }
   .mid small { white-space: nowrap; }
   .end small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-  .hour { top: 78px; margin-top: 14px; }
-  .detail { padding: 4px 14px 16px; }
+  .hour { top: 78px; margin: 22px 0 10px; padding: 8px 2px; }
+  .section { margin: 32px 0 12px; }
+  .detail { padding: 6px 14px 18px; }
+  .detail li { padding: 4px 0 4px 10px; }
+  footer { padding-top: 12px; }
 
   /* comparar */
   .card { padding: 14px 12px; margin-bottom: 16px; }
@@ -306,7 +328,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .kpi { padding: 8px; }
   .tabs button { font-size: .88rem; padding: 12px 2px; }
   .clk { font-size: 1.35rem; }
-  .trip > summary { grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr); padding: 12px 10px; }
+  .trip > summary { grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr); padding: 14px 12px; }
   .dur { font-size: .8rem; }
   .saved, .chips { margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; }
 }

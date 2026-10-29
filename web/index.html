@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lurraldebus · Comparador de viajes</title>
+<meta name="description" content="Horarios de Lurraldebus (Gipuzkoa) claros y comparables: todos los autobuses del día entre dos municipios.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d6001c'/%3E%3Cpath d='M8 9h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zm0 3v4h16v-4zm3 9a1.5 1.5 0 1 0 0 .1zm10 0a1.5 1.5 0 1 0 0 .1z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Lurraldebus <span>comparador de viajes</span></h1>
+  <p id="validity" class="muted"></p>
+</header>
+
+<main>
+  <form id="form" class="panel" autocomplete="off">
+    <div class="route">
+      <label>Origen
+        <select id="o"></select>
+        <select id="os" class="stop" aria-label="Parada de origen"></select>
+      </label>
+      <button type="button" id="swap" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino">⇄</button>
+      <label>Destino
+        <select id="d"></select>
+        <select id="ds" class="stop" aria-label="Parada de destino"></select>
+      </label>
+    </div>
+    <div class="when">
+      <label>Día <input type="date" id="date" required></label>
+      <label>Desde las <input type="time" id="time"></label>
+      <div class="quick">
+        <button type="button" id="now">Ahora</button>
+        <button type="button" id="allday">Todo el día</button>
+      </div>
+      <label class="check"><input type="checkbox" id="holiday"> Festivo <small>(horario de domingo)</small></label>
+      <label class="check"><input type="checkbox" id="transfers" checked> Incluir trasbordos</label>
+    </div>
+  </form>
+
+  <section id="out" aria-live="polite"></section>
+</main>
+
+<footer class="muted">
+  Datos: GTFS oficiales de Lurraldebus (Punto de Acceso Nacional de Transporte, licencia abierta), actualizados a diario.
+  Sin tiempo real: son horarios programados. Revisa siempre la <a href="https://lurraldebus.eus" rel="noopener">web oficial</a> ante cambios o incidencias.
+</footer>
+
+<script src="search.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -4,9 +4,10 @@
   --good: #3f7a0e; --good-bg: #e9f4d9; --brand: #8dc63f;
   --warn-bg: #fff4d6; --warn: #8a5a00; --chip: #e8eced; --shadow: 0 1px 3px rgba(20, 40, 45, .08);
   --band: #00a0ae; --band-ink: #fff;
+  color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme=light]) {
     --bg: #0f1719; --card: #172023; --ink: #e6eef0; --muted: #93a5a9; --line: #26343a;
     --accent: #3cc6d3; --accent-ink: #06262a; --teal: #3cc6d3;
     --good: #a6dc5c; --good-bg: #20301a; --brand: #8dc63f;
@@ -14,13 +15,22 @@
     --band: #00525a; --band-ink: #e6f7f9;
   }
 }
+:root[data-theme=light] { color-scheme: light; }
+:root[data-theme=dark] {
+  --bg: #0f1719; --card: #172023; --ink: #e6eef0; --muted: #93a5a9; --line: #26343a;
+  --accent: #3cc6d3; --accent-ink: #06262a; --teal: #3cc6d3;
+  --good: #a6dc5c; --good-bg: #20301a; --brand: #8dc63f;
+  --warn-bg: #3a2f10; --warn: #f0c36a; --chip: #213036; --shadow: none;
+  --band: #00525a; --band-ink: #e6f7f9;
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 a { color: var(--accent); }
 h2, h3 { margin: 0; }
-sup { font-size: .6em; font-weight: 700; color: var(--muted); }
+sup { font-size: .6em; font-weight: 700; color: var(--muted); line-height: 0; vertical-align: top; position: relative; top: .35em; }
 
 /* cabecera */
 .top { background: var(--card); border-bottom: 1px solid var(--line); }
@@ -30,6 +40,8 @@ h1 { margin: 0; font-size: 1.35rem; line-height: 1.15; letter-spacing: -.01em; f
 h1 .l { color: var(--teal); }
 h1 .b { color: var(--brand); }
 h1 span.sub { font-style: normal; font-weight: 400; color: var(--muted); font-size: .9rem; margin-left: .5rem; letter-spacing: 0; }
+.theme { margin-left: auto; min-height: 36px; padding: 4px 12px; font-size: .8rem; border-radius: 999px; white-space: nowrap; color: var(--muted); }
+.theme:hover { color: var(--ink); }
 #validity { margin: 2px 0 0; font-size: .75rem; color: var(--muted); }
 .band { background: var(--band); color: var(--band-ink); height: 70px; }
 .band-in { max-width: 980px; margin: 0 auto; padding: 12px 16px 0; display: flex; align-items: center; gap: 10px; font-weight: 600; }
@@ -118,10 +130,11 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .trip { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; box-shadow: var(--shadow); }
 .trip[open] { border-color: var(--muted); }
 .trip > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: grid; align-items: center; gap: 6px 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(92px, 150px) minmax(0, 1fr) auto; }
+  grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr) 128px; }
 .trip > summary::-webkit-details-marker { display: none; }
 .trip > summary:hover { background: color-mix(in srgb, var(--chip) 45%, transparent); border-radius: 8px; }
 .end { min-width: 0; }
+.clkrow { display: flex; align-items: center; gap: 8px; }
 .end.r { text-align: right; }
 .clk { display: block; font-size: 1.45rem; line-height: 1.15; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .end small { display: block; color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -133,7 +146,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .trip.fastest .dur { color: var(--good); }
 .mid small { display: block; font-size: .72rem; color: var(--muted); min-height: 1em; }
 .mid small.soon { color: var(--accent); font-weight: 700; }
-.who { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: .75rem; color: var(--muted); text-align: right; }
+.who { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: .75rem; color: var(--muted); text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .who .lines { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 10px 2px 10px 2px; color: #fff; font-weight: 700; font-size: .82rem; }
 .tag { padding: 1px 9px; border-radius: 999px; font-size: .7rem; font-weight: 700; background: var(--chip); color: var(--ink); }

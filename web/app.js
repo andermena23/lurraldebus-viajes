@@ -393,12 +393,12 @@
       return `${gap}<h3>${badge(li.name)} <span>${esc(li.long)}</span></h3><ol>${rows.join("")}</ol>`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}"><summary>
-      <div class="end"><b class="clk">${clock(r.dep)}</b><small>${esc(eng.stopName(first.from))}</small></div>
+      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
       <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}</span>${next ? `<span class="tag next">Próximo</span>` : ""}<span>${esc(ops)}</span></div>
+      <div class="who"><span class="lines">${lines}</span><span>${esc(ops)}</span></div>
       </summary><div class="detail">${detail}</div></details>`;
   }
 

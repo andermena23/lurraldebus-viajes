@@ -33,6 +33,8 @@
     const opts = order.map((i) => `<option value="${i}">${esc(d.munis[i])}</option>`).join("");
     $("o").innerHTML = opts;
     $("d").innerHTML = opts;
+    combo($("o"), "d");
+    combo($("d"));
     $("validity").textContent =
       `${d.agencies.length} operadores · ${d.trips.length.toLocaleString("es")} servicios · horarios vigentes del ${dmy(d.validFrom)} al ${dmy(d.validTo)}`;
 
@@ -71,6 +73,91 @@
     $("form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
     out.addEventListener("click", onClick);
     run();
+  }
+
+  // Selector con escritura: autocompleta sin tildes ni mayúsculas, flechas + Enter, Tab acepta la
+  // primera coincidencia. El <select> original queda oculto como fuente de verdad (value = índice).
+  const combos = [];
+  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+  function combo(sel, nextId) {
+    const wrap = document.createElement("div");
+    wrap.className = "combo";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "combo-in";
+    input.placeholder = "Escribe un municipio…";
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-expanded", "false");
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    const list = document.createElement("ul");
+    list.className = "combo-list";
+    list.setAttribute("role", "listbox");
+    list.hidden = true;
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.append(input, list, sel);
+    sel.tabIndex = -1;
+    sel.setAttribute("aria-hidden", "true");
+
+    const items = [...sel.options].map((o) => ({ value: o.value, text: o.text, key: plain(o.text) }));
+    let shown = [], active = 0;
+
+    const label = () => sel.selectedOptions[0]?.text || "";
+    const sync = () => { if (document.activeElement !== input) input.value = label(); };
+    const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
+
+    function open() {
+      const q = plain(input.value === label() ? "" : input.value);
+      shown = items.filter((i) => i.key.startsWith(q)).concat(items.filter((i) => !i.key.startsWith(q) && i.key.includes(q)));
+      active = 0;
+      list.innerHTML = shown.length
+        ? shown.map((i, k) => `<li role="option" data-k="${k}"${i.value === sel.value ? ' aria-selected="true"' : ""}>${esc(i.text)}</li>`).join("")
+        : `<li class="none">Sin resultados</li>`;
+      mark();
+      list.hidden = false;
+      input.setAttribute("aria-expanded", "true");
+    }
+    function mark() {
+      [...list.children].forEach((li, k) => li.classList.toggle("active", k === active));
+      list.children[active]?.scrollIntoView({ block: "nearest" });
+    }
+    function pick(item, advance) {
+      close();
+      if (item.value !== sel.value) { sel.value = item.value; sel.dispatchEvent(new Event("change")); }
+      input.value = label();
+      if (advance && nextId) $(nextId).parentNode.querySelector(".combo-in").focus();
+    }
+
+    input.addEventListener("focus", () => { input.select(); open(); });
+    input.addEventListener("input", open);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (list.hidden) return open();
+        active = (active + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % (shown.length || 1);
+        mark();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (!list.hidden && shown[active]) pick(shown[active], true);
+      } else if (e.key === "Escape") {
+        close(); input.value = label(); input.select();
+      }
+    });
+    // al salir: aceptar la coincidencia resaltada si se escribió algo; si no, restaurar
+    input.addEventListener("blur", () => {
+      const typed = input.value !== label() && input.value.trim() !== "";
+      if (typed && !list.hidden && shown[active]) pick(shown[active], false);
+      else { close(); input.value = label(); }
+    });
+    list.addEventListener("mousedown", (e) => {
+      e.preventDefault(); // no perder el foco del input antes del click
+      const li = e.target.closest("[data-k]");
+      if (li) pick(shown[Number(li.dataset.k)], true);
+    });
+    combos.push({ sync });
+    sync();
   }
 
   // Al cambiar de día: hoy -> desde ahora; otro día -> todo el día.
@@ -183,6 +270,7 @@
 
   function render() {
     if (!last) return;
+    combos.forEach((c) => c.sync());
     syncControls();
     const { q, res } = last;
     if (q.origin === q.dest) { out.innerHTML = `<p class="empty">Elige dos municipios distintos.</p>`; return; }

@@ -38,6 +38,16 @@ select, input[type=date], input[type=time] {
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; min-height: 44px;
 }
 select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.combo { position: relative; }
+.combo select { display: none; }
+.combo-in { font: inherit; font-size: 1rem; color: var(--ink); background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M3 6l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 32px 9px 10px; width: 100%; min-height: 44px; }
+.combo-list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  max-height: 280px; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); }
+.combo-list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: .95rem; color: var(--ink); }
+.combo-list li.active { background: var(--accent); color: var(--accent-ink); }
+.combo-list li[aria-selected=true]:not(.active) { font-weight: 700; }
+.combo-list li.none { color: var(--muted); cursor: default; }
 select.stop { font-size: .85rem; min-height: 38px; margin-top: 4px; color: var(--muted); }
 button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--card);
   color: var(--ink); border-radius: 10px; padding: 8px 12px; min-height: 44px; }

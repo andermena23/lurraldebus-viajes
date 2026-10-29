@@ -17,6 +17,11 @@ Limitaciones:
   (Loiu y Hondarribia, que aparecen como paradas dentro de su municipio) y Arratzua-Ubarrundia.
 - La llegada se cuenta en la primera parada del municipio destino; elige parada concreta si quieres otra.
 
+## Móvil y offline
+La web es una PWA: en el móvil se puede "Añadir a la pantalla de inicio" y los horarios siguen funcionando sin
+cobertura (service worker en `web/sw.js`: la app va "red primero" y los datos "caché y actualizar", así que tras una
+actualización diaria de datos puede hacer falta abrirla dos veces para verla). Funciona sobre HTTPS o `localhost`.
+
 ## Uso
 ```sh
 python3 scripts/build_data.py     # opcional: refrescar datos (solo librería estándar)

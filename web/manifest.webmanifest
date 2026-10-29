@@ -1,0 +1,15 @@
+{
+  "name": "Lurraldebus · comparador de viajes",
+  "short_name": "Lurraldebus",
+  "description": "Todos los autobuses del día entre dos municipios de Gipuzkoa, claros y comparables.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f4f5",
+  "theme_color": "#00a0ae",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

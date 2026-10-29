@@ -26,6 +26,17 @@
   let eng, data, last = null;
   const state = { tab: "trips", sort: "dep", line: null };
   const out = $("out");
+  let live = false; // true mientras "Desde las" sigue a la hora actual
+  const mobile = matchMedia("(max-width: 700px)");
+
+  const RKEY = "lb-recent";
+  const loadRecent = () => { try { return JSON.parse(localStorage.getItem(RKEY)) || []; } catch (e) { return []; } };
+  const shortDay = (s) => {
+    const t = todayStr();
+    if (s === t) return "Hoy";
+    if (s === addDays(t, 1)) return "Mañana";
+    return new Intl.DateTimeFormat("es", { weekday: "short", day: "numeric", month: "short" }).format(new Date(s + "T12:00:00"));
+  };
 
   fetch("data/network.json")
     .then((r) => r.json())
@@ -46,11 +57,13 @@
 
     const p = new URLSearchParams(location.hash.slice(1));
     const byName = (n, dflt) => { const i = d.munis.indexOf(n); return i >= 0 ? i : d.munis.indexOf(dflt); };
-    $("o").value = byName(p.get("o"), "Donostia");
-    $("d").value = byName(p.get("d"), "Irun");
+    const r0 = p.has("o") ? null : loadRecent()[0]; // sin enlace compartido: última ruta usada
+    $("o").value = byName(p.get("o") || (r0 && r0.o), "Donostia");
+    $("d").value = byName(p.get("d") || (r0 && r0.d), "Irun");
     refreshStops(p.get("os"), p.get("ds"));
     $("date").value = p.get("date") || todayStr();
     $("time").value = p.has("time") ? p.get("time") : $("date").value === todayStr() ? nowStr() : "";
+    live = !p.has("time") && $("date").value === todayStr();
     $("holiday").checked = p.get("h") === "1";
     $("transfers").checked = p.get("t") !== "0";
     if (p.get("tab") === "compare") state.tab = "compare";
@@ -66,9 +79,10 @@
       const b = e.target.closest("[data-day]");
       if (b) setDate(addDays(todayStr(), Number(b.dataset.day)));
     });
-    for (const id of ["time", "holiday", "transfers"]) $(id).addEventListener("change", run);
-    $("now").addEventListener("click", () => { $("date").value = todayStr(); $("time").value = nowStr(); run(); });
-    $("allday").addEventListener("click", () => { $("time").value = ""; run(); });
+    for (const id of ["time", "holiday", "transfers"]) $(id).addEventListener("change", () => run());
+    $("time").addEventListener("input", () => { live = false; });
+    $("now").addEventListener("click", () => { $("date").value = todayStr(); $("time").value = nowStr(); live = true; run(); });
+    $("allday").addEventListener("click", () => { $("time").value = ""; live = false; run(); });
     $("swap").addEventListener("click", () => {
       const [o, os, ds] = [$("o").value, $("os").value, $("ds").value];
       $("o").value = $("d").value;
@@ -77,7 +91,57 @@
       run();
     });
     $("form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+    // móvil: formulario plegable
+    $("psum").addEventListener("click", () => setCollapsed(false));
+    $("pdone").addEventListener("click", () => { setCollapsed(true); out.scrollIntoView({ block: "start" }); });
+    $("form").addEventListener("combo-done", () => setCollapsed(true));
+    $("recent").addEventListener("click", onRecent);
     out.addEventListener("click", onClick);
+    // "Ahora" en vivo: refresca cada minuto y al volver a la pestaña
+    setInterval(tick, 30000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+    setCollapsed(true);
+    run({ initial: true });
+  }
+
+  function setCollapsed(c) {
+    $("form").classList.toggle("collapsed", c);
+    $("psum").setAttribute("aria-expanded", String(!c));
+  }
+
+  // Si "Desde las" sigue a la hora actual y no hay ningún viaje desplegado, actualiza la lista.
+  function tick() {
+    if (!live || document.hidden || !last || $("date").value !== todayStr()) return;
+    const t = nowStr();
+    if (t === $("time").value || out.querySelector("details[open]")) return;
+    $("time").value = t;
+    run({ refresh: true });
+  }
+
+  function pushRecent() {
+    const e = { o: data.munis[last.q.origin], d: data.munis[last.q.dest] };
+    const list = loadRecent().filter((x) => !(x.o === e.o && x.d === e.d));
+    list.unshift(e);
+    try { localStorage.setItem(RKEY, JSON.stringify(list.slice(0, 6))); } catch (err) {}
+  }
+
+  function renderRecent() {
+    const cur = last ? { o: data.munis[last.q.origin], d: data.munis[last.q.dest] } : {};
+    const items = loadRecent().filter((x) => data.munis.includes(x.o) && data.munis.includes(x.d) && !(x.o === cur.o && x.d === cur.d)).slice(0, 4);
+    const box = $("recent");
+    box.hidden = !items.length;
+    box.innerHTML = items.length
+      ? `<span>Recientes</span>` + items.map((x) => `<button type="button" class="rchip" data-o="${esc(x.o)}" data-d="${esc(x.d)}">${esc(x.o)} → ${esc(x.d)}</button>`).join("")
+      : "";
+  }
+
+  function onRecent(e) {
+    const b = e.target.closest(".rchip");
+    if (!b) return;
+    $("o").value = data.munis.indexOf(b.dataset.o);
+    $("d").value = data.munis.indexOf(b.dataset.d);
+    refreshStops(null, null);
+    setCollapsed(true);
     run();
   }
 
@@ -134,6 +198,7 @@
       if (item.value !== sel.value) { sel.value = item.value; sel.dispatchEvent(new Event("change")); }
       input.value = label();
       if (advance && nextId) $(nextId).parentNode.querySelector(".combo-in").focus();
+      else if (advance) sel.closest("form").dispatchEvent(new CustomEvent("combo-done"));
     }
 
     input.addEventListener("focus", () => { input.select(); open(); });
@@ -171,6 +236,7 @@
     if (!s) return;
     $("date").value = s;
     $("time").value = s === todayStr() ? nowStr() : "";
+    live = s === todayStr();
     run();
   }
 
@@ -213,27 +279,33 @@
     }
     if ((el = t.closest("[data-line]"))) { state.line = el.dataset.line; state.tab = "trips"; save(); return render(); }
     if (t.closest("[data-allday]")) return $("allday").click();
-    if ((el = t.closest("[data-copy]"))) {
-      navigator.clipboard?.writeText(location.href).then(() => { el.textContent = "¡Enlace copiado!"; });
-    }
+    if ((el = t.closest("[data-share]"))) share(el);
   }
 
-  function run() {
+  function share(btn) {
+    const url = location.href;
+    const flash = (txt) => { const old = btn.textContent; btn.textContent = txt; setTimeout(() => { btn.textContent = old; }, 2000); };
+    if (navigator.share) navigator.share({ title: document.title, url }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash("¡Enlace copiado!"), () => flash("No se pudo copiar"));
+  }
+
+  function run(opts = {}) {
     const q = {
       origin: Number($("o").value), dest: Number($("d").value),
       originStop: $("os").value, destStop: $("ds").value,
       date: $("date").value, holiday: $("holiday").checked, transfers: $("transfers").checked,
     };
     if (!q.date) return;
-    state.line = null;
+    if (!opts.refresh) state.line = null;
     const res = eng.search(q);
     // un trasbordo con más de 2 h de espera no sirve, salvo que sea lo único que hay
     const wait = (r) => r.legs[1].dep - r.legs[0].arr;
     const sensible = res.transfer.filter((r) => wait(r) <= 120);
     if (sensible.length) res.transfer = sensible;
     last = { q, time: $("time").value, res };
+    if (!opts.refresh && !opts.initial) pushRecent();
     save();
-    render();
+    render(!opts.refresh);
   }
 
   function save() {
@@ -254,6 +326,10 @@
     $("allday").setAttribute("aria-pressed", String($("time").value === ""));
     for (const b of $("dayq").querySelectorAll("[data-day]"))
       b.setAttribute("aria-pressed", String(date === addDays(today, Number(b.dataset.day))));
+    if ($("os").value || $("ds").value) $("stops").open = true;
+    $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
+    $("psum-when").textContent = `${shortDay(date)} · ${$("time").value ? "desde " + $("time").value : "todo el día"}`;
+    renderRecent();
   }
 
   const lineNames = (r) => r.legs.map((l) => eng.line(l.route).name);
@@ -274,8 +350,9 @@
     });
   }
 
-  function render() {
+  function render(anim = false) {
     if (!last) return;
+    out.classList.toggle("anim", anim);
     combos.forEach((c) => c.sync());
     syncControls();
     const { q, res } = last;
@@ -317,7 +394,7 @@
         <h2>${esc(data.munis[q.origin])}${stopTxt($("os"))}<span class="arr">→</span>${esc(data.munis[q.dest])}${stopTxt($("ds"))}</h2>
         <p class="muted" style="margin:2px 0 0">${dayLabel(q.date)}${q.holiday ? " · festivo" : ""}</p></div>
         <div class="kpis">${kpis.join("")}</div>
-        <button type="button" class="copy" data-copy>Copiar enlace</button></div>${outside}`;
+        <button type="button" class="copy" data-share>Compartir</button></div>${outside}`;
   }
 
   function tabsHtml() {
@@ -358,7 +435,7 @@
     const maxDur = Math.max(...list.map((r) => r.dur));
     const fastest = list.length > 1 ? Math.min(...list.map((r) => r.dur)) : -1;
     const nextDep = markNext && nowMin != null ? Math.min(...list.filter((r) => r.dep >= nowMin).map((r) => r.dep)) : Infinity;
-    let html = "", hour = null, nextDone = false;
+    let html = "", hour = null, nextDone = false, idx = 0;
     for (const r of list) {
       if (state.sort === "dep") {
         const h = Math.floor(r.dep / 60);
@@ -366,12 +443,12 @@
       }
       const isNext = !nextDone && r.dep === nextDep;
       if (isNext) nextDone = true;
-      html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin });
+      html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin, i: idx++ });
     }
     return html;
   }
 
-  function tripHtml(r, { maxDur, fastest, next, nowMin }) {
+  function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {
     const first = r.legs[0], lastLeg = r.legs[r.legs.length - 1];
     const lines = r.legs.map((l) => badge(eng.line(l.route).name)).join("");
     const ops = [...new Set(r.legs.map((l) => eng.line(l.route).agency))].join(" / ");
@@ -392,7 +469,7 @@
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
       return `${gap}<h3>${badge(li.name)} <span>${esc(li.long)}</span></h3><ol>${rows.join("")}</ol>`;
     }).join("");
-    return `<details class="trip${fastest ? " fastest" : ""}"><summary>
+    return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
       <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
@@ -437,4 +514,7 @@
         <tbody>${table}</tbody></table></div>
         <p class="muted" style="margin:10px 0 0">Pulsa una línea para ver solo sus viajes. En verde: más servicios y más rápida de media.</p></div>`;
   }
+
+  // PWA: instalable y con los horarios disponibles sin conexión
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

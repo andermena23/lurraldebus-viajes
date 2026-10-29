@@ -90,6 +90,33 @@
       };
     }
 
+    // Paradas con sentido para un par de municipios: donde se puede subir en el origen con un
+    // bus que luego para en el destino, y donde se puede bajar en el destino. null si no hay directos.
+    const pairCache = new Map();
+    function pairStops(origin, dest) {
+      const key = origin + ":" + dest;
+      if (pairCache.has(key)) return pairCache.get(key);
+      const from = new Set(), to = new Set();
+      for (const t of trips) {
+        const ids = t[3], fl = t[6];
+        let iMin = -1, jMax = -1;
+        for (let k = 0; k < ids.length; k++) {
+          const m = stops[ids[k]][1], f = fl.charCodeAt(k) - 48;
+          if (m === origin && f % 2 === 0 && iMin < 0) iMin = k;
+          if (m === dest && f < 2) jMax = k;
+        }
+        if (iMin < 0 || jMax <= iMin) continue;
+        for (let k = 0; k < ids.length; k++) {
+          const m = stops[ids[k]][1], f = fl.charCodeAt(k) - 48;
+          if (m === origin && f % 2 === 0 && k < jMax) from.add(ids[k]);
+          if (m === dest && f < 2 && k > iMin) to.add(ids[k]);
+        }
+      }
+      const r = from.size && to.size ? { from, to } : null;
+      pairCache.set(key, r);
+      return r;
+    }
+
     function search({ origin, dest, originStop, destStop, date, holiday = false, transfers = true }) {
       const O = stopSet(origin, originStop);
       const D = stopSet(dest, destStop);
@@ -174,7 +201,7 @@
     }
 
     return {
-      data, search, neighbors,
+      data, search, pairStops, neighbors,
       muniStops: (m) => stopsByMuni[m],
       stopTime: (ti, pos) => trips[ti][5][pos],
       line: (ri) => ({ name: routes[ri][0], long: routes[ri][1], color: routes[ri][2], agency: agencies[routes[ri][3]] }),

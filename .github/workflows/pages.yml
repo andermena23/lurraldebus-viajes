@@ -1,0 +1,57 @@
+name: Publicar web
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * *"   # cada día: refresca los horarios y vuelve a publicar
+  workflow_dispatch:
+
+permissions:
+  contents: write   # guardar network.json actualizado
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # En la ejecución diaria (o manual) se vuelven a bajar los GTFS; en un push se publica lo que hay.
+      - name: Actualizar datos GTFS
+        if: github.event_name != 'push'
+        run: python3 scripts/build_data.py
+
+      - name: Tests
+        run: node test/search.test.js
+
+      - name: Guardar los datos nuevos en el repo
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add web/data/network.json
+          git diff --cached --quiet || { git commit -m "Actualizar datos GTFS" && git push; }
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

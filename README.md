@@ -70,12 +70,15 @@ Una vez puesto su URL en la web ("Más opciones → Tiempo real"):
   cada municipio en coordenadas UTM, que `scripts/build_data.py` convierte a lat/lon y casa con las del GTFS
   (≤ 70 m). Quedan guardadas en `network.json` bajo la clave `"rt": {"<índiceParada>": "<idMunicipio>:<código>"}`.
 - Sin proxy configurado (o si falla la conexión), todo queda como antes: horarios programados.
+- **Desarrollo local**: `python3 scripts/dev_proxy.py` levanta un proxy con las mismas rutas que el Worker
+  (`:8931`), para activar el tiempo real en localhost sin desplegar nada.
 
 ## Desarrollo
 
 ```sh
 python3 scripts/build_data.py     # refrescar datos (solo librería estándar; --no-rt salta el tiempo real)
 python3 -m http.server -d web     # abrir http://localhost:8000
+python3 scripts/dev_proxy.py      # proxy del tiempo real en http://localhost:8931 (imita worker/)
 node test/search.test.js          # tests del motor de búsqueda
 node test/realtime.test.js        # tests del tablero en tiempo real
 ```

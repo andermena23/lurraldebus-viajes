@@ -1,9 +1,9 @@
 /* Service worker: la app (HTML/JS/CSS) va "red primero" para ver siempre la última versión y cae a caché sin
  * conexión; los datos (network.json, ~4 MB) van "caché y actualizar" para abrir al instante y funcionar offline. */
-const SHELL = "lb-shell-v1";
-const DATA = "lb-data-v1";
-const FILES = ["./", "index.html", "style.css", "app.js", "search.js", "theme.js", "manifest.webmanifest",
-  "icons/icon-192.png", "icons/icon-512.png"];
+const SHELL = "lb-shell-v2";
+const DATA = "lb-data-v2";
+const FILES = ["./", "index.html", "style.css", "app.js", "search.js", "realtime.js", "theme.js",
+  "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

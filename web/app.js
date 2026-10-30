@@ -34,6 +34,10 @@
   const out = $("out");
   let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
   let live = false; // true mientras "Desde las" sigue a la hora actual
+  let rt = null; // instancia de tiempo real (web/realtime.js) una vez cargados los datos
+  const OKEY = "lb-rt-on";
+  let rtOn = false;
+  try { rtOn = localStorage.getItem(OKEY) === "1"; } catch (e) {}
   const mobile = matchMedia("(max-width: 700px)");
 
   const RKEY = "lb-recent";
@@ -42,6 +46,7 @@
   const SKEY = "lb-saved";
   const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SKEY)) || []; } catch (e) { return []; } };
   const storeSaved = (l) => { try { localStorage.setItem(SKEY, JSON.stringify(l)); } catch (e) {} };
+  const storeRt = () => { try { localStorage.setItem(OKEY, rtOn ? "1" : "0"); } catch (e) {} };
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
@@ -58,6 +63,7 @@
   function init(d) {
     data = d;
     eng = LB.create(d);
+    rt = RT.create(data);
     const order = d.munis.map((_, i) => i).sort((a, b) => d.munis[a].localeCompare(d.munis[b], "es"));
     const opts = order.map((i) => `<option value="${i}">${esc(d.munis[i])}</option>`).join("");
     $("o").innerHTML = opts;
@@ -110,6 +116,25 @@
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
+    // tiempo real: configuración en "Más opciones"
+    $("rt-url").value = RT.getBase();
+    $("rt-on").checked = rtOn && RT.getBase() !== "";
+    const rtMsg = () => {
+      const ok = $("rt-url").value.trim().startsWith("http");
+      $("rt-url").classList.toggle("bad", !ok);
+      $("rt-hint").hidden = ok;
+      return ok;
+    };
+    rtMsg();
+    $("rt-url").addEventListener("input", () => {
+      rt.setBase($("rt-url").value);
+      rtOn = rtMsg();
+      $("rt-on").checked = rtOn;
+      storeRt();
+      render();
+    });
+    $("rt-on").addEventListener("change", () => { rtOn = $("rt-on").checked; storeRt(); run(); });
+
     // "Ahora" en vivo: refresca cada minuto y al volver a la pestaña
     setInterval(tick, 30000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
@@ -167,13 +192,20 @@
     $("psum").setAttribute("aria-expanded", String(!c));
   }
 
-  // Si "Desde las" sigue a la hora actual y no hay ningún viaje desplegado, actualiza la lista.
+  // Cada 30 s: si "Desde las" sigue a la hora actual, avanza la hora; y si el tiempo real
+  // está activo con datos de hoy, renueva los tableros (son TTL, no pasa nada si aún no toca).
   function tick() {
-    if (!live || document.hidden || !last || $("date").value !== todayStr()) return;
-    const t = nowStr();
-    if (t === $("time").value || out.querySelector("details[open]")) return;
-    $("time").value = t;
-    run({ refresh: true });
+    const isToday = $("date").value === todayStr();
+    if (document.hidden || !last || !(live || (rtOn && rt.active() && isToday))) return;
+    if (live && isToday) {
+      const t = nowStr();
+      if (t !== $("time").value && !out.querySelector("details[open]")) {
+        $("time").value = t;
+        run({ refresh: true });
+        return;
+      }
+    }
+    render(); // rt.pass() se ocupa de pedir lo caducado y volver a pintar si hay datos nuevos
   }
 
   function pushRecent() {
@@ -439,8 +471,17 @@
     const direct = res.direct.filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
     const trans = (q.transfers ? res.transfer : []).filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
 
+    // tiempo real: solo hoy y con la pestaña visible; solo paradas de las salidas por llegar
+    const rtAble = rtOn && rt.active() && isToday && nowMin != null && !document.hidden;
+    $("rt-footer").hidden = !(rtOn && rt.active());
+    if (rtAble) {
+      const need = [...new Set([...direct, ...trans].filter((r) => r.dep >= nowMin)
+        .map((r) => r.legs[0].from))].slice(0, 16);
+      rt.pass(need).then((n) => { if (n) render(); }); // vuelta a pintar con tableros nuevos
+    }
+
     out.innerHTML = summaryHtml(q, res, nowMin) + tabsHtml() +
-      (state.tab === "compare" ? compareHtml(res.direct) : tripsHtml(q, res, direct, trans, nowMin, minT));
+      (state.tab === "compare" ? compareHtml(res.direct) : tripsHtml(q, res, direct, trans, nowMin, minT, rtAble));
   }
 
   function summaryHtml(q, res, nowMin) {
@@ -479,7 +520,7 @@
     return `<div class="tabs" role="tablist">${tab("trips", "Viajes")}${tab("compare", "Comparar líneas")}</div>`;
   }
 
-  function tripsHtml(q, res, direct, trans, nowMin, minT) {
+  function tripsHtml(q, res, direct, trans, nowMin, minT, rtAble) {
     // chips de línea con nº de servicios del día
     const counts = new Map();
     for (const r of [...res.direct, ...(q.transfers ? res.transfer : [])])
@@ -499,15 +540,24 @@
     if (!direct.length && !trans.length)
       html += `<p class="empty">No quedan salidas desde las ${esc(last.time)}. <button type="button" data-allday>Ver todo el día</button></p>`;
 
-    html += cards(direct, nowMin, true);
+    html += cards(direct, nowMin, true, rtAble);
     if (trans.length) {
       html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} opciones${trans.length > 40 ? ", mostrando 40" : ""}</small></h3>` +
-        cards(trans.slice(0, 40), nowMin, false);
+        cards(trans.slice(0, 40), nowMin, false, rtAble);
     }
     return html;
   }
 
-  function cards(list, nowMin, markNext) {
+  // Etiqueta del desfase en tiempo real (si hay datos de la web oficial para esa parada)
+  const rtTag = (a) => {
+    if (!a) return "";
+    const txt = a.d > 1 ? `+${a.d} min` : a.d < -1 ? `−${-a.d} min` : "en hora";
+    const cls = a.d > 1 ? "late" : a.d < -1 ? "early" : "ok";
+    const title = a.minutes != null ? `llegada en ${a.minutes} min según el tablero oficial` : "";
+    return `<span class="rt ${cls}" title="${esc(title)}">${txt}</span>`;
+  };
+
+  function cards(list, nowMin, markNext, rtAble) {
     if (!list.length) return "";
     const maxDur = Math.max(...list.map((r) => r.dur));
     const fastest = list.length > 1 ? Math.min(...list.map((r) => r.dur)) : -1;
@@ -520,19 +570,22 @@
       }
       const isNext = !nextDone && r.dep === nextDep;
       if (isNext) nextDone = true;
-      html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin, i: idx++ });
+      html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin, i: idx++ }, rtAble);
     }
     return html;
   }
 
-  function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {
+  function tripHtml(r, { maxDur, fastest, next, nowMin, i }, rtAble) {
     const first = r.legs[0], lastLeg = r.legs[r.legs.length - 1];
     const lines = r.legs.map((l) => badge(eng.line(l.route).name)).join("");
     const ops = [...new Set(r.legs.map((l) => eng.line(l.route).agency))].join(" / ");
     const inMin = nowMin != null && r.dep >= nowMin && r.dep - nowMin <= 180 ? r.dep - nowMin : null;
     const wait = r.transfers ? r.legs[1].dep - r.legs[0].arr : 0;
     const soon = !r.transfers && inMin != null;
+    // solo anotamos buses por llegar de hoy que de verdad salen de una parada tablero
+    const rtA = rtAble && inMin != null ? rt.ann(r) : null;
     const note = r.transfers ? `1 cambio · ${wait} min`
+      : rtA ? (Math.abs(rtA.d) <= 1 ? "en tiempo real: en hora" : `tiempo real: ${rtA.d > 0 ? "retrasado" : "adelantado"} ${Math.abs(rtA.d)} min`)
       : soon ? (inMin === 0 ? "sale ahora" : `sale en ${inMin} min`) : "";
     const detail = r.legs.map((l, k) => {
       const t = data.trips[l.trip];
@@ -543,11 +596,11 @@
         const time = p === l.j ? t[4][p] : t[5][p];
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
-      const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
+      const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}${k === 1 && rtA?.occ && /^\d+$/.test(rtA.occ) ? ` · ocupación ${esc(rtA.occ)}` : ""}</p>` : "";
       return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
-      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
+      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${rtTag(rtA)}${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>

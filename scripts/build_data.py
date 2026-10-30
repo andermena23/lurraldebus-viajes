@@ -9,9 +9,11 @@ import csv
 import difflib
 import io
 import json
+import math
 import re
 import sys
 import unicodedata
+import urllib.parse
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
@@ -19,6 +21,11 @@ from pathlib import Path
 from statistics import median
 
 OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "network.json"
+UA = "Mozilla/5.0 lurraldebus-viajes"
+
+# web oficial: tablero de llegadas en tiempo real ("kartel hervea")
+RT_URL = "https://lurraldebus.eus/real"
+RT_RADIUS_M = 70  # distancia máxima para casar una parada del GTFS con la oficial
 
 # id de MobilityDatabase -> (operador, municipio fijo si es servicio urbano)
 FEEDS = {
@@ -58,8 +65,93 @@ def norm(s):
 
 
 def get(url, timeout):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 lurraldebus-viajes"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
     return urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def post(url, fields, timeout):
+    req = urllib.request.Request(
+        url, data=urllib.parse.urlencode(fields).encode(),
+        headers={"User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded"})
+    return urllib.request.urlopen(req, timeout=timeout).read()
+
+
+def utm_to_wgs84(x, y, zone=30):
+    """Convierte coordenadas UTM ETRS89/WGS84 (hemisferio norte) a lat/lon."""
+    k0 = 0.9996
+    a, f = 6378137.0, 1 / 298.257223563
+    e2 = f * (2 - f)
+    e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
+    x -= 500000.0
+    M = y / k0
+    mu = M / (a * (1 - e2 / 4 - 3 * e2**2 / 64 - 5 * e2**3 / 256))
+    phi1 = (mu + (3 * e1 / 2 - 27 * e1**3 / 32) * math.sin(2 * mu)
+            + (21 * e1**2 / 16 - 55 * e1**4 / 32) * math.sin(4 * mu)
+            + (151 * e1**3 / 96) * math.sin(6 * mu)
+            + (1097 * e1**4 / 512) * math.sin(8 * mu))
+    s, c, t = math.sin(phi1), math.cos(phi1), math.tan(phi1)
+    ep2 = e2 / (1 - e2)
+    N1 = a / math.sqrt(1 - e2 * s * s)
+    R1 = a * (1 - e2) / (1 - e2 * s * s) ** 1.5
+    D = x / (N1 * k0)
+    lat = phi1 - (N1 * t / R1) * (D**2 / 2
+        - (5 + 3 * t * t + 10 * ep2 * c * c - 4 * ep2**2 * c**4 - 9 * ep2) * D**4 / 24
+        + (61 + 90 * t * t + 298 * ep2 * c * c + 45 * t**4 - 252 * ep2 - 3 * ep2**2 * c**4) * D**6 / 720)
+    lon0 = math.radians(zone * 6 - 183)
+    lon = lon0 + (D - (1 + 2 * t * t + ep2 * c * c) * D**3 / 6
+        + (5 - 2 * ep2 * c * c + 28 * t * t - 3 * ep2**2 * c**4 + 8 * ep2 + 24 * t**4) * D**5 / 120) / c
+    return math.degrees(lat), math.degrees(lon)
+
+
+def mdist(lat1, lon1, lat2, lon2):
+    return math.hypot((lat1 - lat2) * 111320, (lon1 - lon2) * 111320 * math.cos(math.radians(lat1)))
+
+
+def realtime_codes(stops, timeout=20):
+    """Códigos de parada del tablero en tiempo real, casadas por coordenadas.
+
+    La web oficial da las paradas de cada municipio con coordenadas UTM; se convierten
+    a WGS84 y se casan con las del GTFS (el stop_id del GTFS suele ser ya el código
+    oficial, así que la coincidencia es alta). Devuelve {índice_de_parada: "muniId:código"}.
+    """
+    page = get(f"{RT_URL}/result", 30).decode("utf-8", "replace")
+    muni_ids = sorted(set(re.findall(r'value="(\d{4}[0-9A-Z]{0,3})"', page)))
+    if not muni_ids:
+        print("aviso: sin municipios en el tablero de tiempo real", file=sys.stderr)
+        return None
+    cands = []  # (lat, lon, muniId, código)
+    for mid in muni_ids:
+        try:
+            j = json.loads(post(f"{RT_URL}/ajax_get_paradas_municipio_info.json",
+                                {"municipioId": mid}, timeout))
+        except Exception:
+            continue
+        for p in j.get("data") or []:
+            try:
+                lat, lon = utm_to_wgs84(float(p["UTM_X"]), float(p["UTM_Y"]))
+                cands.append((lat, lon, mid, str(p["value"])))
+            except Exception:
+                continue
+    if not cands:
+        return None
+    # índice en rejilla de 0.005º (~500 m) para no comparar esto con aquello
+    grid = defaultdict(list)
+    for lat, lon, mid, code in cands:
+        grid[round(lat * 200), round(lon * 200)].append((lat, lon, mid, code))
+    rt, hits = {}, 0
+    for i, s in enumerate(stops):
+        best, bestD = None, RT_RADIUS_M
+        for gx in (round(s[2] * 200) + d for d in (-1, 0, 1)):
+            for gy in (round(s[3] * 200) + d for d in (-1, 0, 1)):
+                for lat, lon, mid, code in grid.get((gx, gy), ()):
+                    d = mdist(s[2], s[3], lat, lon)
+                    if d <= bestD:
+                        best, bestD = (mid, code), d
+        if best:
+            rt[i] = f"{best[0]}:{best[1]}"
+            hits += 1
+    print(f"tiempo real: {hits}/{len(stops)} paradas casadas", file=sys.stderr)
+    return rt or None
 
 
 def fetch_latest_zip(feed_id):
@@ -202,6 +294,12 @@ def main():
         "munis": munis, "agencies": agencies, "stops": stops,
         "routes": routes, "services": services, "trips": trips,
     }
+    # códigos de la parada en tiempo real: separable para poder saltárselo con --no-rt
+    if "--no-rt" not in sys.argv:
+        try:
+            data["rt"] = realtime_codes(stops)
+        except Exception as e:
+            print(f"aviso: tiempo real no disponible ({e})", file=sys.stderr)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"{len(munis)} municipios, {len(stops)} paradas, {len(routes)} líneas, "

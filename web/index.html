@@ -82,6 +82,11 @@
           <label class="toggle"><input type="checkbox" id="transfers" checked><span>Incluir trasbordos</span></label>
           <label class="toggle"><input type="checkbox" id="holiday"><span>Festivo <small>(horario de domingo)</small></span></label>
         </div>
+        <div class="opts rt-opts">
+          <label class="toggle"><input type="checkbox" id="rt-on"><span>Tiempo real</span></label>
+          <label class="rt-url">Servicio <input type="url" id="rt-url" spellcheck="false" placeholder="URL del proxy (ver README)"></label>
+        </div>
+        <p class="rt-hint" id="rt-hint" hidden>La web oficial no acepta llamadas desde el navegador: hace falta un proxy propio. Despliega el gratis de <code>worker/</code> en Cloudflare (instrucciones en el README del repo) y pega su URL aquí.</p>
       </details>
 
       <div class="recent" id="recent" hidden></div>
@@ -97,10 +102,12 @@
 
 <footer>
   Datos: GTFS oficiales de Lurraldebus (Punto de Acceso Nacional de Transporte, licencia abierta), actualizados a diario.
-  Son horarios programados, sin tiempo real. Revisa siempre la <a href="https://lurraldebus.eus" rel="noopener">web oficial</a> ante cambios o incidencias.
+  <span id="rt-footer" hidden> Con el tiempo real activado, las llegadas vienen del tablero oficial de <a href="https://lurraldebus.eus" rel="noopener">lurraldebus.eus</a>.</span>
+  Revisa siempre la <a href="https://lurraldebus.eus" rel="noopener">web oficial</a> ante cambios o incidencias.
 </footer>
 
 <script src="search.js?v=dev"></script>
+<script src="realtime.js?v=dev"></script>
 <script src="app.js?v=dev"></script>
 </body>
 </html>

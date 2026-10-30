@@ -195,6 +195,19 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .detail li.end-stop time { color: var(--ink); }
 .transfer-note { margin: 12px 0 0; padding: 6px 10px; background: var(--warn-bg); color: var(--warn); border-radius: 8px; }
 
+/* tiempo real */
+.rt-opts { align-items: center; }
+.rt-url { flex-direction: row; align-items: center; gap: 6px; min-width: 0; flex: 1 1 260px; }
+.rt-url input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--ink); font: inherit; font-size: .9rem; min-height: 42px; }
+.rt-url input.bad { border-color: #c2375b; }
+.rt-hint { color: var(--muted); font-size: .8rem; margin: 8px 0 0; }
+.rt-hint code { font-size: .75rem; }
+.rt { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .68rem; font-weight: 700; white-space: nowrap; vertical-align: .15em; }
+.rt.ok { background: var(--good-bg); color: var(--good); }
+.rt.late { background: var(--warn-bg); color: var(--warn); }
+.rt.early { background: var(--chip); color: var(--ink); }
+
 /* entrada suave (se desactiva en refrescos automáticos y con "reducir movimiento") */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 #out.anim .trip { animation: rise .3s ease backwards; animation-delay: calc(var(--i, 0) * 22ms); }

@@ -1,0 +1,12 @@
+# Proxy en Cloudflare Worker para el tiempo real de Lurraldebus.
+# La web oficial (lurraldebus.eus) no envía cabeceras CORS, así que no se puede
+# llamar directamente desde el navegador; este Worker expone dos GET abiertos
+# que reenvían las peticiones al mismo sitio.
+name = "lurraldebus-rt"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Orígenes que pueden llamar al proxy: "*" para cualquiera, o una lista separada por
+# comas con tus orígenes concretos, p. ej. "https://andergalisteo.github.io"
+ALLOW_ORIGIN = "*"

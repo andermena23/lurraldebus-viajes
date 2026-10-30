@@ -31,7 +31,9 @@ jobs:
         run: python3 scripts/build_data.py
 
       - name: Tests
-        run: node test/search.test.js
+        run: |
+          node test/search.test.js
+          node test/pesa.test.js
 
       - name: Guardar los datos nuevos en el repo
         if: github.event_name != 'push'

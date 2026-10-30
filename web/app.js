@@ -49,21 +49,50 @@
   const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
   // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
   const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
-  // La web de venta (Pesa) no se puede rellenar desde fuera: rechaza los POST de otras webs (403) y no admite el viaje en la URL.
-  // Por eso se abre tal cual, se copia la tarjeta y se muestra qué elegir, con los nombres que usa Pesa.
+  // Pesa rechaza (403) los POST de otras webs y no admite el viaje en la URL, así que el viaje viaja en el "#" (no llega al servidor)
+  // y un marcador (bookmarklet) del usuario, ejecutado en la propia página de Pesa, rellena su formulario. Sin marcador, se abre
+  // Pesa tal cual y se muestra qué elegir.
   const PESA_URL = "https://online.pesa.net/index.asp?id=es";
-  const PESA_NAMES = ["ABADIÑO", "AEROPUERTO BILBAO", "ALEGIA", "ANDOAIN", "ANTZUOLA", "ARETXABALETA", "ARLABAN", "ARRASATE-MONDRAGON", "ARROIABE",
-    "ATXONDO", "BEASAIN", "BERGARA", "BILBAO", "DONOSTIA-SAN SEBASTIAN", "DURANA", "DURANGO", "EIBAR", "ELGETA", "ELGOIBAR", "ELORRIO", "ERMUA",
-    "ESKORIATZA", "EZKIO-ITXASO", "IKAZTEGIETA", "ITSASONDO", "LANDA", "LASARTE", "LEGORRETA", "MENDIBIL", "OÑATI", "ORDIZIA", "ORMAIZTEGI",
-    "SAN PRUDENTZIO", "SORALUZE-PLACEN", "TOLOSA", "ULLIBARRI GAMBOA", "VILLABONA", "VITORIA-GASTEIZ", "ZARAUTZ", "ZUMARRAGA-URRETXU"]
-    .map((name) => ({ name, k: plain(name) }));
-  // Nombre que usa Pesa para una parada nuestra (por municipio; el aeropuerto de Bilbao es una parada de Loiu), o null.
-  const pesaName = (si) => {
-    if (/bilboko aireportua|aeropuerto bilbao/.test(plain(eng.stopName(si)))) return "AEROPUERTO BILBAO";
+  // Orígenes/destinos de Pesa tal cual los envía su formulario ("código/NOMBRE").
+  const PESA_STOPS = ["3/ABADIÑO", "130/AEROPUERTO BILBAO", "12/ALEGIA", "15/ANDOAIN", "7/ANTZUOLA", "24/ARETXABALETA", "26/ARLABAN",
+    "23/ARRASATE-MONDRAGON", "43/ARROIABE", "84/ATXONDO", "10/BEASAIN", "6/BERGARA", "1/BILBAO", "20/DONOSTIA-SAN SEBASTIAN", "45/DURANA",
+    "2/DURANGO", "19/EIBAR", "5/ELGETA", "21/ELGOIBAR", "4/ELORRIO", "18/ERMUA", "25/ESKORIATZA", "173/EZKIO-ITXASO", "174/IKAZTEGIETA",
+    "176/ITSASONDO", "39/LANDA", "16/LASARTE", "175/LEGORRETA", "44/MENDIBIL", "32/OÑATI", "11/ORDIZIA", "9/ORMAIZTEGI", "33/SAN PRUDENTZIO",
+    "22/SORALUZE-PLACEN", "13/TOLOSA", "42/ULLIBARRI GAMBOA", "14/VILLABONA", "30/VITORIA-GASTEIZ", "220/ZARAUTZ", "8/ZUMARRAGA-URRETXU"]
+    .map((v) => ({ v, name: v.slice(v.indexOf("/") + 1), k: plain(v.slice(v.indexOf("/") + 1)) }));
+  // Parada de Pesa para una parada nuestra (por municipio; el aeropuerto de Bilbao es una parada de Loiu), o null.
+  const pesaStop = (si) => {
+    if (/bilboko aireportua|aeropuerto bilbao/.test(plain(eng.stopName(si)))) return PESA_STOPS.find((x) => x.k === "aeropuerto bilbao");
     const m = plain(eng.stopMuni(si));
-    const hit = PESA_NAMES.find((x) => x.k !== "aeropuerto bilbao" && (x.k.startsWith(m) || m.startsWith(x.k)));
-    return hit ? hit.name : null;
+    return PESA_STOPS.find((x) => x.k !== "aeropuerto bilbao" && (x.k.startsWith(m) || m.startsWith(x.k))) || null;
   };
+  // Se ejecuta EN la página de Pesa (como marcador): lee el viaje del "#" y rellena origen, fecha, tarjeta y destino.
+  // Debe ser autónoma: se serializa con toString().
+  function pesaFill() {
+    var p = new URLSearchParams(location.hash.slice(1));
+    var o = p.get("lbo"), d = p.get("lbd"), f = p.get("lbf"), t = p.get("lbt") || "";
+    var $ = function (id) { return document.getElementById(id); };
+    if (!o || !d || !f || !$("selectOri")) { alert("Abre esta página desde el botón «Comprar» del comparador para que haya un viaje que rellenar."); return; }
+    $("fechaI").value = f;
+    if (t) $("tarjeta").value = t;
+    var so = $("selectOri");
+    so.value = o;
+    if (so.value !== o) { alert("Pesa no ofrece el origen «" + o.split("/")[1] + "»."); return; }
+    so.dispatchEvent(new Event("change")); // carga los destinos posibles (por XHR) y muestra la tarjeta
+    var n = 0, w = setInterval(function () {
+      var sd = $("selectDes");
+      if (sd && !sd.disabled && [].some.call(sd.options, function (x) { return x.value === d; })) { sd.value = d; clearInterval(w); }
+      else if (++n > 40) { clearInterval(w); alert("Pesa no ofrece ese destino en esa fecha."); }
+    }, 150);
+  }
+  const pesaBookmarklet = "javascript:" + encodeURIComponent("(" + pesaFill.toString() + ")()");
+  // URL de Pesa con el viaje del tramo en el "#", o la de siempre si el tramo no encaja con sus paradas.
+  function pesaUrl(leg, q, mugi) {
+    const o = pesaStop(leg.from), d = pesaStop(leg.to);
+    if (!o || !d) return PESA_URL;
+    const [yy, mm, dd] = q.date.split("-");
+    return PESA_URL + "#" + new URLSearchParams({ lbo: o.v, lbd: d.v, lbf: `${dd}/${mm}/${yy}`, lbt: mugi.replace(/\s/g, "") });
+  }
   const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
   const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
@@ -146,6 +175,8 @@
       $("mugi-clear").hidden = !$("mugi").value;
     });
     $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
+    $("pesa-bm").href = pesaBookmarklet;
+    $("pesa-bm").addEventListener("click", (e) => { e.preventDefault(); $("pesa-bm-hint").hidden = false; }); // se arrastra, no se pulsa
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
@@ -390,12 +421,15 @@
   // Copia el número de MUGI y abre Avanza (en el mismo gesto, para que el navegador no bloquee la ventana).
   function buy(btn) {
     const mugi = loadMugi().trim();
+    const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
     const note = btn.parentNode.querySelector(".buy-note");
-    if (!mugi) { window.open(PESA_URL, "_blank", "noopener"); note.innerHTML = noMugi; return; }
+    const url = pesaUrl(leg, last.q, mugi);
+    const hint = url === PESA_URL ? "" : " En Pesa, pulsa tu marcador «Rellenar Pesa» (se instala en Ajustes) o elige lo indicado.";
+    if (!mugi) { window.open(url, "_blank", "noopener"); note.innerHTML = noMugi + hint; return; }
     // Copiar ANTES de abrir la pestaña: con la pestaña nueva el documento pierde el foco y el navegador rechaza la copia.
     const done = (copied) => {
-      window.open(PESA_URL, "_blank", "noopener");
-      note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`;
+      window.open(url, "_blank", "noopener");
+      note.textContent = (copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`) + hint;
     };
     if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(() => done(true), () => done(false)); else done(false);
   }
@@ -603,11 +637,11 @@
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-      const po = buyable(l) && pesaName(l.from), pd = buyable(l) && pesaName(l.to);
+      const po = buyable(l) && pesaStop(l.from), pd = buyable(l) && pesaStop(l.to);
       const [yy, mm, dd] = last.q.date.split("-");
       const buy = buyable(l)
         ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
-          ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po)}</b> → <b>${esc(pd)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
+          ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po.name)}</b> → <b>${esc(pd.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
           <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
       return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>${buy}`;
     }).join("");

@@ -3,6 +3,7 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const pad = (n) => String(n).padStart(2, "0");
+  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const todayStr = () => ymd(new Date());
   const addDays = (s, n) => { const d = new Date(s + "T12:00:00"); d.setDate(d.getDate() + n); return ymd(d); };
@@ -48,11 +49,23 @@
   const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
   // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
   const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
-  const AVANZA_URL = "https://gipuzkoa.avanzagrupo.com/es/tarifas-y-bonos/compra-tus-billetes";
+  // La web de venta (Pesa) no se puede rellenar desde fuera: rechaza los POST de otras webs (403) y no admite el viaje en la URL.
+  // Por eso se abre tal cual, se copia la tarjeta y se muestra qué elegir, con los nombres que usa Pesa.
+  const PESA_URL = "https://online.pesa.net/index.asp?id=es";
+  const PESA_NAMES = ["ABADIÑO", "AEROPUERTO BILBAO", "ALEGIA", "ANDOAIN", "ANTZUOLA", "ARETXABALETA", "ARLABAN", "ARRASATE-MONDRAGON", "ARROIABE",
+    "ATXONDO", "BEASAIN", "BERGARA", "BILBAO", "DONOSTIA-SAN SEBASTIAN", "DURANA", "DURANGO", "EIBAR", "ELGETA", "ELGOIBAR", "ELORRIO", "ERMUA",
+    "ESKORIATZA", "EZKIO-ITXASO", "IKAZTEGIETA", "ITSASONDO", "LANDA", "LASARTE", "LEGORRETA", "MENDIBIL", "OÑATI", "ORDIZIA", "ORMAIZTEGI",
+    "SAN PRUDENTZIO", "SORALUZE-PLACEN", "TOLOSA", "ULLIBARRI GAMBOA", "VILLABONA", "VITORIA-GASTEIZ", "ZARAUTZ", "ZUMARRAGA-URRETXU"]
+    .map((name) => ({ name, k: plain(name) }));
+  // Nombre que usa Pesa para una parada nuestra (por municipio; el aeropuerto de Bilbao es una parada de Loiu), o null.
+  const pesaName = (si) => {
+    if (/bilboko aireportua|aeropuerto bilbao/.test(plain(eng.stopName(si)))) return "AEROPUERTO BILBAO";
+    const m = plain(eng.stopMuni(si));
+    const hit = PESA_NAMES.find((x) => x.k !== "aeropuerto bilbao" && (x.k.startsWith(m) || m.startsWith(x.k)));
+    return hit ? hit.name : null;
+  };
   const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
   const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
-  // Si se confirma que Avanza admite origen/destino/fecha por URL, se añaden aquí (leg = tramo, q = búsqueda).
-  const avanzaUrl = (leg, q) => AVANZA_URL;
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
@@ -232,7 +245,6 @@
   // Selector con escritura: autocompleta sin tildes ni mayúsculas, flechas + Enter, Tab acepta la
   // primera coincidencia. El <select> original queda oculto como fuente de verdad (value = índice).
   const combos = [];
-  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
   function combo(sel, nextId) {
     const wrap = document.createElement("div");
@@ -378,13 +390,14 @@
   // Copia el número de MUGI y abre Avanza (en el mismo gesto, para que el navegador no bloquee la ventana).
   function buy(btn) {
     const mugi = loadMugi().trim();
-    const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
-    window.open(avanzaUrl(leg, last.q), "_blank", "noopener");
     const note = btn.parentNode.querySelector(".buy-note");
-    if (!mugi) { note.innerHTML = noMugi; return; }
-    const ok = () => { note.textContent = "Número de MUGI copiado: pégalo en Avanza al elegir el viaje."; };
-    const ko = () => { note.textContent = `No se pudo copiar. Tu número: ${mugi}`; };
-    if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(ok, ko); else ko();
+    if (!mugi) { window.open(PESA_URL, "_blank", "noopener"); note.innerHTML = noMugi; return; }
+    // Copiar ANTES de abrir la pestaña: con la pestaña nueva el documento pierde el foco y el navegador rechaza la copia.
+    const done = (copied) => {
+      window.open(PESA_URL, "_blank", "noopener");
+      note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`;
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(() => done(true), () => done(false)); else done(false);
   }
 
   function share(btn) {
@@ -590,8 +603,12 @@
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
+      const po = buyable(l) && pesaName(l.from), pd = buyable(l) && pesaName(l.to);
+      const [yy, mm, dd] = last.q.date.split("-");
       const buy = buyable(l)
-        ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button><p class="muted buy-note">${loadMugi().trim() ? "Se copiará tu número de MUGI y se abrirá Avanza." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
+        ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
+          ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po)}</b> → <b>${esc(pd)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
+          <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
       return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>${buy}`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>

@@ -93,6 +93,7 @@ button.link { all: unset; cursor: pointer; color: var(--accent); text-decoration
 button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .buy { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .buy button[data-buy] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+.buy .buy-pick { margin: 10px 0 0; font-size: .85rem; }
 .buy .buy-note { margin: 8px 0 0; }
 .stops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
 select.stop { font-size: .92rem; }

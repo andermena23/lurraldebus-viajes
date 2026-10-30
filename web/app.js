@@ -141,6 +141,13 @@
     $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
     $("pesa-bm").href = PESA.bookmarklet;
     $("pesa-bm").addEventListener("click", (e) => { e.preventDefault(); $("pesa-bm-hint").hidden = false; }); // se arrastra, no se pulsa
+    // móvil: no se puede arrastrar, así que se copia y se pega como dirección de un marcador creado a mano
+    $("pesa-bm-copy").addEventListener("click", () => {
+      const box = $("pesa-bm-text"), btn = $("pesa-bm-copy");
+      const showCode = () => { box.value = PESA.bookmarklet; box.hidden = false; box.focus(); box.select(); btn.textContent = "No se pudo copiar: selecciona y copia el texto de abajo"; };
+      if (!navigator.clipboard) return showCode();
+      navigator.clipboard.writeText(PESA.bookmarklet).then(() => { btn.textContent = "✓ Marcador copiado"; setTimeout(() => { btn.textContent = "Copiar el marcador"; }, 2500); }, showCode);
+    });
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);

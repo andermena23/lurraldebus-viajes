@@ -42,6 +42,17 @@
   const SKEY = "lb-saved";
   const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SKEY)) || []; } catch (e) { return []; } };
   const storeSaved = (l) => { try { localStorage.setItem(SKEY, JSON.stringify(l)); } catch (e) {} };
+  // Número de MUGI para comprar en Avanza: solo en este navegador.
+  const MKEY = "lb-mugi";
+  const loadMugi = () => { try { return localStorage.getItem(MKEY) || ""; } catch (e) { return ""; } };
+  const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
+  // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
+  const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
+  const AVANZA_URL = "https://gipuzkoa.avanzagrupo.com/es/tarifas-y-bonos/compra-tus-billetes";
+  const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
+  const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
+  // Si se confirma que Avanza admite origen/destino/fecha por URL, se añaden aquí (leg = tramo, q = búsqueda).
+  const avanzaUrl = (leg, q) => AVANZA_URL;
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
@@ -107,6 +118,21 @@
     $("psum").addEventListener("click", () => setCollapsed(false));
     $("pdone").addEventListener("click", () => { setCollapsed(true); out.scrollIntoView({ block: "start" }); });
     $("form").addEventListener("combo-done", () => setCollapsed(true));
+    // Ajustes (diálogo modal): de momento solo el número de MUGI
+    const dlg = $("settings");
+    $("mugi").value = loadMugi();
+    $("mugi-clear").hidden = !$("mugi").value;
+    $("gear").addEventListener("click", () => openSettings());
+    $("settings-close").addEventListener("click", () => dlg.close());
+    $("settings-done").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); }); // clic fuera
+    dlg.addEventListener("close", () => { if (last) render(); }); // refresca los avisos de compra
+    $("mugi").addEventListener("input", () => {
+      $("mugi").value = $("mugi").value.replace(/[^\d ]/g, "");
+      storeMugi($("mugi").value.trim());
+      $("mugi-clear").hidden = !$("mugi").value;
+    });
+    $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
@@ -339,6 +365,26 @@
     if (t.closest("[data-allday]")) return $("allday").click();
     if (t.closest("[data-star]")) return toggleSaved();
     if ((el = t.closest("[data-share]"))) share(el);
+    if ((el = t.closest("[data-buy]"))) buy(el);
+    if (t.closest("[data-settings]")) openSettings();
+  }
+
+  function openSettings() {
+    const dlg = $("settings");
+    if (!dlg.open) dlg.showModal();
+    $("mugi").focus();
+  }
+
+  // Copia el número de MUGI y abre Avanza (en el mismo gesto, para que el navegador no bloquee la ventana).
+  function buy(btn) {
+    const mugi = loadMugi().trim();
+    const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
+    window.open(avanzaUrl(leg, last.q), "_blank", "noopener");
+    const note = btn.parentNode.querySelector(".buy-note");
+    if (!mugi) { note.innerHTML = noMugi; return; }
+    const ok = () => { note.textContent = "Número de MUGI copiado: pégalo en Avanza al elegir el viaje."; };
+    const ko = () => { note.textContent = `No se pudo copiar. Tu número: ${mugi}`; };
+    if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(ok, ko); else ko();
   }
 
   function share(btn) {
@@ -544,7 +590,9 @@
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>`;
+      const buy = buyable(l)
+        ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button><p class="muted buy-note">${loadMugi().trim() ? "Se copiará tu número de MUGI y se abrirá Avanza." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
+      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>${buy}`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
       <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>

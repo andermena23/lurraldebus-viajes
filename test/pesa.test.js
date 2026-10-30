@@ -37,33 +37,4 @@ const pesa = data.agencies.indexOf("Pesa (Debagoiena)");
 const sin = new Set();
 for (const t of data.trips) if (data.routes[t[0]][3] === pesa) for (const s of t[3]) if (!P.stopFor(eng.stopMuni(s), eng.stopName(s))) sin.add(eng.stopMuni(s));
 if (sin.size) console.log("AVISO: municipios de Pesa sin equivalente en su web (el botón abre Pesa sin rellenar):", [...sin].join(", "));
-
-// URL: el viaje va en el "#" y se recupera tal cual
-const u = P.url(P.stopFor("Arrasate", "San Prudentzio"), P.stopFor("Bilbao", "x"), "2026-11-02", "1234 5678 90");
-const h = new URLSearchParams(u.split("#")[1]);
-assert.deepStrictEqual([h.get("lbo"), h.get("lbd"), h.get("lbf"), h.get("lbt")], ["33/SAN PRUDENTZIO", "1/BILBAO", "02/11/2026", "1234567890"]);
-assert(u.startsWith("https://online.pesa.net/index.asp"));
-
-// Marcador contra una página de Pesa simulada (origen, destinos que llegan por XHR, fecha y tarjeta)
-async function fill(hash, destinos) {
-  const els = { fechaI: { value: "" }, tarjeta: { value: "" }, selectDes: { disabled: true, options: [], value: "" } };
-  els.selectOri = {
-    opts: ["33/SAN PRUDENTZIO", "23/ARRASATE-MONDRAGON"], v: "",
-    set value(x) { this.v = this.opts.includes(x) ? x : ""; }, get value() { return this.v; },
-    dispatchEvent() { setTimeout(() => { els.selectDes = { disabled: false, options: destinos.map((v) => ({ value: v })), value: "" }; }, 200); },
-  };
-  const alerts = [];
-  Object.assign(globalThis, { document: { getElementById: (id) => els[id] || null }, location: { hash }, alert: (x) => alerts.push(x), Event: function () {} });
-  new Function("(" + decodeURIComponent(P.bookmarklet.slice("javascript:".length)) + ")")();
-  await new Promise((r) => setTimeout(r, 900));
-  return { els, alerts };
-}
-(async () => {
-  const ok = await fill("#" + u.split("#")[1], ["30/VITORIA-GASTEIZ", "1/BILBAO"]);
-  assert.deepStrictEqual([ok.els.fechaI.value, ok.els.tarjeta.value, ok.els.selectOri.value, ok.els.selectDes.value, ok.alerts.length],
-    ["02/11/2026", "1234567890", "33/SAN PRUDENTZIO", "1/BILBAO", 0]);
-  const sinViaje = await fill("", []);
-  assert.strictEqual(sinViaje.alerts.length, 1);
-  console.log("OK pesa");
-  process.exit(0);
-})();
+console.log("OK pesa");

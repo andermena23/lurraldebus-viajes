@@ -49,14 +49,9 @@
   const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
   // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
   const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
-  // Compra en Pesa: ver web/pesa.js. Emparejamos nuestras paradas con las suyas por nombre de parada y, si no, por municipio.
+  // Compra en Pesa: ver web/pesa.js. Se abre su web, se copia la tarjeta y se indica qué elegir allí (no se puede rellenar desde fuera).
   const PESA_URL = PESA.URL;
   const pesaStop = (si) => PESA.stopFor(eng.stopMuni(si), eng.stopName(si));
-  // URL de Pesa con el viaje del tramo en el "#", o la de siempre si el tramo no encaja con sus paradas.
-  function pesaUrl(leg, q, mugi) {
-    const o = pesaStop(leg.from), d = pesaStop(leg.to);
-    return o && d ? PESA.url(o, d, q.date, mugi) : PESA_URL;
-  }
   const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
   const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
@@ -139,15 +134,6 @@
       $("mugi-clear").hidden = !$("mugi").value;
     });
     $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
-    $("pesa-bm").href = PESA.bookmarklet;
-    $("pesa-bm").addEventListener("click", (e) => { e.preventDefault(); $("pesa-bm-hint").hidden = false; }); // se arrastra, no se pulsa
-    // móvil: no se puede arrastrar, así que se copia y se pega como dirección de un marcador creado a mano
-    $("pesa-bm-copy").addEventListener("click", () => {
-      const box = $("pesa-bm-text"), btn = $("pesa-bm-copy");
-      const showCode = () => { box.value = PESA.bookmarklet; box.hidden = false; box.focus(); box.select(); btn.textContent = "No se pudo copiar: selecciona y copia el texto de abajo"; };
-      if (!navigator.clipboard) return showCode();
-      navigator.clipboard.writeText(PESA.bookmarklet).then(() => { btn.textContent = "✓ Marcador copiado"; setTimeout(() => { btn.textContent = "Copiar el marcador"; }, 2500); }, showCode);
-    });
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
@@ -394,13 +380,11 @@
     const mugi = loadMugi().trim();
     const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
     const note = btn.parentNode.querySelector(".buy-note");
-    const url = pesaUrl(leg, last.q, mugi);
-    const hint = url === PESA_URL ? "" : " En Pesa, pulsa tu marcador «Rellenar Pesa» (se instala en Ajustes) o elige lo indicado.";
-    if (!mugi) { window.open(url, "_blank", "noopener"); note.innerHTML = noMugi + hint; return; }
+    if (!mugi) { window.open(PESA_URL, "_blank", "noopener"); note.innerHTML = noMugi; return; }
     // Copiar ANTES de abrir la pestaña: con la pestaña nueva el documento pierde el foco y el navegador rechaza la copia.
     const done = (copied) => {
-      window.open(url, "_blank", "noopener");
-      note.textContent = (copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`) + hint;
+      window.open(PESA_URL, "_blank", "noopener");
+      note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`;
     };
     if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(() => done(true), () => done(false)); else done(false);
   }

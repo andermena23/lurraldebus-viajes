@@ -25,7 +25,7 @@ servicios del día**, con salida, llegada y duración claras, y deja compararlos
 - **Comprar billetes**: en los tramos de Pesa (largo recorrido) el botón «Comprar en Avanza» copia tu número de MUGI (se
   guarda en el navegador desde el engranaje de Ajustes) y abre la web de venta, indicando origen, destino y fecha con los
   nombres de Pesa (p. ej. San Prudentzio se compra desde San Prudentzio, no desde Arrasate). Pesa no admite rellenar el viaje
-  desde fuera (rechaza los POST de otras webs), así que se rellena con un marcador que se arrastra a la barra de marcadores.
+  desde fuera (rechaza los POST de otras webs y no acepta el viaje en la URL), así que el resto se elige a mano en su web.
 - Tema claro, oscuro o automático. Recientes, enlaces compartibles y diseño pensado para móvil.
 - Instalable como app y con los horarios disponibles **sin conexión** (PWA).
 
@@ -71,7 +71,7 @@ Estructura:
 | `web/search.js` | motor de búsqueda (directos + 1 trasbordo), sin dependencias; funciona en navegador y Node |
 | `web/app.js`, `index.html`, `style.css`, `theme.js` | interfaz |
 | `web/sw.js`, `manifest.webmanifest`, `icons/` | PWA |
-| `web/pesa.js` | compra en Pesa: emparejar paradas con las suyas y marcador que rellena su formulario |
+| `web/pesa.js` | compra en Pesa: emparejar nuestras paradas con las suyas |
 | `test/search.test.js`, `test/pesa.test.js` | tests (las fechas son relativas a la vigencia de los datos) |
 
 ## Publicación

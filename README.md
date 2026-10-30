@@ -22,6 +22,10 @@ servicios del día**, con salida, llegada y duración claras, y deja compararlos
 - Interruptor de **festivo** (aplica el horario de domingo).
 - **Viajes guardados**: la estrella ☆ guarda la ruta (con las paradas que hayas elegido) y aparece en una tira bajo el
   buscador para abrirla con un toque. Se guardan en el navegador, no se sincronizan entre dispositivos.
+- **Comprar billetes**: en los tramos de Pesa (largo recorrido) el botón «Comprar en Avanza» copia tu número de MUGI (se
+  guarda en el navegador desde el engranaje de Ajustes) y abre la web de venta, indicando origen, destino y fecha con los
+  nombres de Pesa (p. ej. San Prudentzio se compra desde San Prudentzio, no desde Arrasate). Pesa no admite rellenar el viaje
+  desde fuera (rechaza los POST de otras webs), así que se rellena con un marcador que se arrastra a la barra de marcadores.
 - Tema claro, oscuro o automático. Recientes, enlaces compartibles y diseño pensado para móvil.
 - Instalable como app y con los horarios disponibles **sin conexión** (PWA).
 
@@ -56,6 +60,7 @@ No hay backend: el navegador carga ese JSON y `web/search.js` hace la búsqueda 
 python3 scripts/build_data.py     # refrescar datos (solo librería estándar)
 python3 -m http.server -d web     # abrir http://localhost:8000
 node test/search.test.js          # tests del motor de búsqueda
+node test/pesa.test.js            # tests de la compra en Pesa
 ```
 
 Estructura:
@@ -66,7 +71,8 @@ Estructura:
 | `web/search.js` | motor de búsqueda (directos + 1 trasbordo), sin dependencias; funciona en navegador y Node |
 | `web/app.js`, `index.html`, `style.css`, `theme.js` | interfaz |
 | `web/sw.js`, `manifest.webmanifest`, `icons/` | PWA |
-| `test/search.test.js` | tests (las fechas son relativas a la vigencia de los datos) |
+| `web/pesa.js` | compra en Pesa: emparejar paradas con las suyas y marcador que rellena su formulario |
+| `test/search.test.js`, `test/pesa.test.js` | tests (las fechas son relativas a la vigencia de los datos) |
 
 ## Publicación
 

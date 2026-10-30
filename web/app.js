@@ -3,6 +3,7 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const pad = (n) => String(n).padStart(2, "0");
+  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const todayStr = () => ymd(new Date());
   const addDays = (s, n) => { const d = new Date(s + "T12:00:00"); d.setDate(d.getDate() + n); return ymd(d); };
@@ -42,6 +43,22 @@
   const SKEY = "lb-saved";
   const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SKEY)) || []; } catch (e) { return []; } };
   const storeSaved = (l) => { try { localStorage.setItem(SKEY, JSON.stringify(l)); } catch (e) {} };
+  // Número de MUGI para comprar en Avanza: solo en este navegador.
+  const MKEY = "lb-mugi";
+  const loadMugi = () => { try { return localStorage.getItem(MKEY) || ""; } catch (e) { return ""; } };
+  const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
+  // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
+  const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
+  // Compra en Pesa: ver web/pesa.js. Emparejamos nuestras paradas con las suyas por nombre de parada y, si no, por municipio.
+  const PESA_URL = PESA.URL;
+  const pesaStop = (si) => PESA.stopFor(eng.stopMuni(si), eng.stopName(si));
+  // URL de Pesa con el viaje del tramo en el "#", o la de siempre si el tramo no encaja con sus paradas.
+  function pesaUrl(leg, q, mugi) {
+    const o = pesaStop(leg.from), d = pesaStop(leg.to);
+    return o && d ? PESA.url(o, d, q.date, mugi) : PESA_URL;
+  }
+  const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
+  const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
@@ -107,6 +124,30 @@
     $("psum").addEventListener("click", () => setCollapsed(false));
     $("pdone").addEventListener("click", () => { setCollapsed(true); out.scrollIntoView({ block: "start" }); });
     $("form").addEventListener("combo-done", () => setCollapsed(true));
+    // Ajustes (diálogo modal): de momento solo el número de MUGI
+    const dlg = $("settings");
+    $("mugi").value = loadMugi();
+    $("mugi-clear").hidden = !$("mugi").value;
+    $("gear").addEventListener("click", () => openSettings());
+    $("settings-close").addEventListener("click", () => dlg.close());
+    $("settings-done").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); }); // clic fuera
+    dlg.addEventListener("close", () => { if (last) render(); }); // refresca los avisos de compra
+    $("mugi").addEventListener("input", () => {
+      $("mugi").value = $("mugi").value.replace(/[^\d ]/g, "");
+      storeMugi($("mugi").value.trim());
+      $("mugi-clear").hidden = !$("mugi").value;
+    });
+    $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
+    $("pesa-bm").href = PESA.bookmarklet;
+    $("pesa-bm").addEventListener("click", (e) => { e.preventDefault(); $("pesa-bm-hint").hidden = false; }); // se arrastra, no se pulsa
+    // móvil: no se puede arrastrar, así que se copia y se pega como dirección de un marcador creado a mano
+    $("pesa-bm-copy").addEventListener("click", () => {
+      const box = $("pesa-bm-text"), btn = $("pesa-bm-copy");
+      const showCode = () => { box.value = PESA.bookmarklet; box.hidden = false; box.focus(); box.select(); btn.textContent = "No se pudo copiar: selecciona y copia el texto de abajo"; };
+      if (!navigator.clipboard) return showCode();
+      navigator.clipboard.writeText(PESA.bookmarklet).then(() => { btn.textContent = "✓ Marcador copiado"; setTimeout(() => { btn.textContent = "Copiar el marcador"; }, 2500); }, showCode);
+    });
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
@@ -206,7 +247,6 @@
   // Selector con escritura: autocompleta sin tildes ni mayúsculas, flechas + Enter, Tab acepta la
   // primera coincidencia. El <select> original queda oculto como fuente de verdad (value = índice).
   const combos = [];
-  const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
   function combo(sel, nextId) {
     const wrap = document.createElement("div");
@@ -339,6 +379,30 @@
     if (t.closest("[data-allday]")) return $("allday").click();
     if (t.closest("[data-star]")) return toggleSaved();
     if ((el = t.closest("[data-share]"))) share(el);
+    if ((el = t.closest("[data-buy]"))) buy(el);
+    if (t.closest("[data-settings]")) openSettings();
+  }
+
+  function openSettings() {
+    const dlg = $("settings");
+    if (!dlg.open) dlg.showModal();
+    $("mugi").focus();
+  }
+
+  // Copia el número de MUGI y abre Avanza (en el mismo gesto, para que el navegador no bloquee la ventana).
+  function buy(btn) {
+    const mugi = loadMugi().trim();
+    const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
+    const note = btn.parentNode.querySelector(".buy-note");
+    const url = pesaUrl(leg, last.q, mugi);
+    const hint = url === PESA_URL ? "" : " En Pesa, pulsa tu marcador «Rellenar Pesa» (se instala en Ajustes) o elige lo indicado.";
+    if (!mugi) { window.open(url, "_blank", "noopener"); note.innerHTML = noMugi + hint; return; }
+    // Copiar ANTES de abrir la pestaña: con la pestaña nueva el documento pierde el foco y el navegador rechaza la copia.
+    const done = (copied) => {
+      window.open(url, "_blank", "noopener");
+      note.textContent = (copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`) + hint;
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(() => done(true), () => done(false)); else done(false);
   }
 
   function share(btn) {
@@ -544,7 +608,13 @@
         rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
       }
       const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>`;
+      const po = buyable(l) && pesaStop(l.from), pd = buyable(l) && pesaStop(l.to);
+      const [yy, mm, dd] = last.q.date.split("-");
+      const buy = buyable(l)
+        ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
+          ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po.name)}</b> → <b>${esc(pd.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
+          <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
+      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>${buy}`;
     }).join("");
     return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
       <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>

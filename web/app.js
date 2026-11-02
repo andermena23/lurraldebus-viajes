@@ -606,6 +606,7 @@
       combos.forEach((c) => c.sync());
       syncControls();
       out.innerHTML = lineHtml();
+      scrollLineToNow();
       return;
     }
     if (!last) return;
@@ -887,7 +888,8 @@
       html += `<div class="tabs" role="tablist">${tables.map((x, k) => `<button type="button" role="tab" data-dir="${k}" aria-selected="${k === dir}">${esc(x.from)} → ${esc(x.to)} <small>${x.trips.length}</small></button>`).join("")}</div>`;
     const nowMin = date === todayStr() ? toMin(nowStr()) : null;
     const past = (c) => nowMin != null && c.dep < nowMin;
-    const head = tb.trips.map((c) => `<th class="${past(c) ? "past" : ""}">${clock(c.dep)}</th>`).join("");
+    const nextIdx = nowMin != null ? tb.trips.findIndex((c) => !past(c)) : -1; // primer viaje que aún no ha salido
+    const head = tb.trips.map((c, ci) => `<th class="${past(c) ? "past" : ci === nextIdx ? "next" : ""}">${clock(c.dep)}</th>`).join("");
     // primera y última parada real de cada viaje: ahí «solo subida» / «solo bajada» es lo normal y no se marca
     const ends = tb.trips.map((c) => { const idx = c.cells.flatMap((x, k) => (x ? [k] : [])); return [idx[0], idx[idx.length - 1]]; });
     const body = tb.stops.map((sid, row) => `<tr><th scope="row"><span class="lt-muni">${esc(eng.stopMuni(sid))}</span>${esc(eng.stopName(sid))}</th>` +
@@ -901,6 +903,16 @@
       }).join("") + "</tr>").join("");
     return html + `<div class="card"><div class="table-wrap lt-wrap"><table class="lt"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <p class="muted" style="margin:10px 0 0">Cada columna es un viaje. <b>↓</b> solo bajada · <b>↑</b> solo subida · «·» el viaje no pasa por esa parada. Horario programado: las horas de las paradas intermedias son estimaciones del operador.</p></div>`;
+  }
+
+  // Hoy: desplaza el cuadro para que la primera columna que aún no ha salido quede junto a los nombres de las paradas.
+  // Si ya han salido todos, deja visibles los últimos. Otro día: empieza por el primero.
+  function scrollLineToNow() {
+    const wrap = out.querySelector(".lt-wrap");
+    if (!wrap) return;
+    const now = wrap.querySelector("thead th.next");
+    if (now) wrap.scrollLeft = Math.max(0, now.offsetLeft - wrap.querySelector("thead th").offsetWidth - 6);
+    else wrap.scrollLeft = wrap.querySelector("thead th.past") ? wrap.scrollWidth : 0;
   }
 
   // ---- mapa del tramo (Leaflet + OpenStreetMap, se carga solo al pedirlo) ----

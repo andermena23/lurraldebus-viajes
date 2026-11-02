@@ -407,6 +407,7 @@ details.notice p { margin: 8px 0 0; }
 .lt .lt-muni { display: block; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .lt td.no { color: var(--line); }
 .lt .past { opacity: .45; }
+.lt thead th.next { color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
 .lt sup { font-size: .65em; color: var(--muted); margin-left: 1px; }
 .tabs button small { opacity: .7; }
 

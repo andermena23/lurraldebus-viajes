@@ -30,8 +30,8 @@
   const dayFmt = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
   const dayLabel = (s) => { const t = dayFmt.format(new Date(s + "T12:00:00")); return t[0].toUpperCase() + t.slice(1); };
 
-  let eng, data, last = null;
-  const state = { tab: "trips", sort: "dep", line: null };
+  let eng, data, fares = null, last = null;
+  const state = { tab: "trips", sort: "dep", line: null, mode: "trip", allTrans: false, lineKey: "", dir: 0 };
   const out = $("out");
   let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
   let live = false; // true mientras "Desde las" sigue a la hora actual
@@ -62,9 +62,12 @@
     return new Intl.DateTimeFormat("es", { weekday: "short", day: "numeric", month: "short" }).format(new Date(s + "T12:00:00"));
   };
 
-  fetch("data/network.json")
-    .then((r) => r.json())
-    .then(init)
+  // Las tarifas son opcionales: sin ellas la app funciona igual, solo sin precio.
+  Promise.all([
+    fetch("data/network.json").then((r) => r.json()),
+    fetch("data/fares.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ])
+    .then(([d, f]) => { if (f) fares = FARES.create(f); init(d); })
     .catch((e) => { out.innerHTML = `<p class="notice">No se pudieron cargar los datos (${esc(e.message)}). Si abres el archivo directamente, sírvelo con un servidor: <code>python3 -m http.server -d web</code>.</p>`; });
 
   function init(d) {
@@ -77,7 +80,10 @@
     combo($("o"), "d");
     combo($("d"));
     $("validity").textContent =
-      `${d.agencies.length} operadores · ${d.trips.length.toLocaleString("es")} servicios · horarios vigentes del ${dmy(d.validFrom)} al ${dmy(d.validTo)}`;
+      `${d.agencies.length} operadores · ${d.routes.length} líneas · horarios del ${dmy(d.validFrom)} al ${dmy(d.validTo)}` +
+      (d.feedDate ? ` · datos del ${dmy(d.feedDate)}` : "");
+    fillLines();
+    renderInfo();
 
     const p = new URLSearchParams(location.hash.slice(1));
     const byName = (n, dflt) => { const i = d.munis.indexOf(n); return i >= 0 ? i : d.munis.indexOf(dflt); };
@@ -88,9 +94,13 @@
     $("date").value = p.get("date") || todayStr();
     $("time").value = p.has("time") ? p.get("time") : $("date").value === todayStr() ? nowStr() : "";
     live = !p.has("time") && $("date").value === todayStr();
-    $("holiday").checked = p.get("h") === "1";
+    // festivo: lo que diga el enlace; si no, el que corresponda a la fecha (se puede desmarcar)
+    $("holiday").checked = p.has("h") ? p.get("h") === "1" : !!HOL.holiday($("date").value);
     $("transfers").checked = p.get("t") !== "0";
+    $("demand").checked = p.get("e") !== "0";
     if (p.get("tab") === "compare") state.tab = "compare";
+    if (p.get("view") === "line" && lineIdx.has(p.get("line"))) { state.mode = "line"; $("line").value = p.get("line"); }
+    $("form").classList.toggle("linemode", state.mode === "line");
 
     $("o").addEventListener("change", () => { refreshStops(null, $("ds").value); run(); });
     $("d").addEventListener("change", () => { refreshStops($("os").value, null); run(); });
@@ -103,7 +113,12 @@
       const b = e.target.closest("[data-day]");
       if (b) setDate(addDays(todayStr(), Number(b.dataset.day)));
     });
-    for (const id of ["time", "holiday", "transfers"]) $(id).addEventListener("change", () => run());
+    for (const id of ["time", "holiday", "transfers", "demand", "line"]) $(id).addEventListener("change", () => run());
+    $("line").addEventListener("change", () => { state.dir = 0; });
+    document.querySelector(".modes").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-mode]");
+      if (b) setMode(b.dataset.mode);
+    });
     $("time").addEventListener("input", () => { live = false; });
     $("now").addEventListener("click", () => { $("date").value = todayStr(); $("time").value = nowStr(); live = true; run(); });
     $("allday").addEventListener("click", () => { $("time").value = ""; live = false; run(); });
@@ -175,6 +190,7 @@
   function onSaved(e) {
     const b = e.target.closest("[data-saved]");
     if (!b) return;
+    toTrip();
     const items = loadSaved().filter((r) => data.munis.includes(r.o) && data.munis.includes(r.d));
     const r = items[Number(b.dataset.saved)];
     if (!r) return;
@@ -196,7 +212,7 @@
 
   // Si "Desde las" sigue a la hora actual y no hay ningún viaje desplegado, actualiza la lista.
   function tick() {
-    if (!live || document.hidden || !last || $("date").value !== todayStr()) return;
+    if (!live || state.mode !== "trip" || document.hidden || !last || $("date").value !== todayStr()) return;
     const t = nowStr();
     if (t === $("time").value || out.querySelector("details[open]")) return;
     $("time").value = t;
@@ -223,6 +239,7 @@
   function onRecent(e) {
     const b = e.target.closest(".rchip");
     if (!b) return;
+    toTrip();
     $("o").value = data.munis.indexOf(b.dataset.o);
     $("d").value = data.munis.indexOf(b.dataset.d);
     refreshStops(null, null);
@@ -321,7 +338,38 @@
     $("date").value = s;
     $("time").value = s === todayStr() ? nowStr() : "";
     live = s === todayStr();
+    $("holiday").checked = !!HOL.holiday(s);
     run();
+  }
+
+  function toTrip() {
+    state.mode = "trip";
+    $("form").classList.remove("linemode");
+  }
+
+  function setMode(m) {
+    if (state.mode === m) return;
+    state.mode = m;
+    $("form").classList.toggle("linemode", m === "line");
+    setCollapsed(false);
+    run();
+  }
+
+  // ---- líneas: selector y utilidades ----
+  const lineIdx = new Map(); // "UK01@La Guipuzcoana" -> índice de ruta
+  const lineKey = (ri) => `${data.routes[ri][0]}@${data.agencies[data.routes[ri][3]]}`;
+  function fillLines() {
+    const byAgency = new Map();
+    data.routes.forEach((r, ri) => {
+      lineIdx.set(lineKey(ri), ri);
+      if (!byAgency.has(r[3])) byAgency.set(r[3], []);
+      byAgency.get(r[3]).push(ri);
+    });
+    const collator = new Intl.Collator("es", { numeric: true });
+    $("line").innerHTML = [...byAgency].sort((a, b) => data.agencies[a[0]].localeCompare(data.agencies[b[0]], "es"))
+      .map(([ai, list]) => `<optgroup label="${esc(data.agencies[ai])}">` + list
+        .sort((a, b) => collator.compare(data.routes[a][0], data.routes[b][0]))
+        .map((ri) => `<option value="${esc(lineKey(ri))}">${esc(data.routes[ri][0])} · ${esc(longName(eng.line(ri)))}</option>`).join("") + "</optgroup>").join("");
   }
 
   function refreshStops(osKeep, dsKeep) {
@@ -362,11 +410,26 @@
       return render();
     }
     if ((el = t.closest("[data-line]"))) { state.line = el.dataset.line; state.tab = "trips"; save(); return render(); }
+    if ((el = t.closest("[data-dir]"))) { state.dir = Number(el.dataset.dir); return render(); }
+    if (t.closest("[data-alltrans]")) { state.allTrans = !state.allTrans; return run({ refresh: true }); }
+    if (t.closest("[data-holiday]")) { $("holiday").checked = true; return run({ refresh: true }); }
+    if ((el = t.closest("[data-linefor]"))) return showLine(Number(el.dataset.linefor));
+    if ((el = t.closest("[data-map]"))) return toggleMap(el);
     if (t.closest("[data-allday]")) return $("allday").click();
     if (t.closest("[data-star]")) return toggleSaved();
     if ((el = t.closest("[data-share]"))) share(el);
     if ((el = t.closest("[data-buy]"))) buy(el);
     if (t.closest("[data-settings]")) openSettings();
+  }
+
+  // Abre el horario completo de una línea (desde el detalle de un viaje)
+  function showLine(ri) {
+    $("line").value = lineKey(ri);
+    state.dir = 0;
+    state.mode = "line";
+    $("form").classList.add("linemode");
+    run();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openSettings() {
@@ -402,32 +465,62 @@
     else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash(mobile.matches ? "✓ Copiado" : "¡Enlace copiado!"), () => flash("No se pudo copiar"));
   }
 
+  const isDemand = (r) => r.legs.some((l) => eng.line(l.route).demand);
+  const prevHoliday = (date) => !!HOL.holiday(addDays(date, -1));
+
   function run(opts = {}) {
+    if (state.mode === "line") return runLine(opts);
     const q = {
       origin: Number($("o").value), dest: Number($("d").value),
       originStop: $("os").value, destStop: $("ds").value,
       date: $("date").value, holiday: $("holiday").checked, transfers: $("transfers").checked,
+      demand: $("demand").checked,
     };
     if (!q.date) return;
-    if (!opts.refresh) state.line = null;
+    q.holidayPrev = prevHoliday(q.date);
+    if (!opts.refresh) { state.line = null; state.allTrans = false; }
     const res = eng.search(q);
-    // un trasbordo con más de 2 h de espera no sirve, salvo que sea lo único que hay
+    if (!q.demand) { // sin servicios a demanda
+      res.direct = res.direct.filter((r) => !isDemand(r));
+      res.transfer = res.transfer.filter((r) => !isDemand(r));
+    }
+    // Un trasbordo con más de 2 h de espera no sirve, salvo que sea lo único que hay (o se pidan todos).
     const wait = (r) => r.legs[1].dep - r.legs[0].arr;
     const sensible = res.transfer.filter((r) => wait(r) <= 120);
-    if (sensible.length) res.transfer = sensible;
+    res.hiddenWait = 0;
+    if (sensible.length && !state.allTrans) { res.hiddenWait = res.transfer.length - sensible.length; res.transfer = sensible; }
     last = { q, time: $("time").value, res };
     if (!opts.refresh && !opts.initial) pushRecent();
     save();
     render(!opts.refresh);
   }
 
+  // ---- horario de una línea (como la pestaña «Líneas» de la web oficial) ----
+  let lastLine = null;
+  function runLine(opts = {}) {
+    const ri = lineIdx.get($("line").value);
+    const date = $("date").value;
+    if (ri == null || !date) return;
+    const holiday = $("holiday").checked;
+    const items = eng.lineDay(ri, date, holiday, prevHoliday(date));
+    lastLine = { ri, date, holiday, tables: eng.lineTable(items), count: items.length };
+    if (!opts.refresh) state.dir = Math.min(state.dir, Math.max(0, lastLine.tables.length - 1));
+    save();
+    render(!opts.refresh);
+  }
+
   function save() {
+    if (state.mode === "line") {
+      if (lastLine) history.replaceState(null, "", "#" + new URLSearchParams({ view: "line", line: $("line").value, date: lastLine.date, h: lastLine.holiday ? "1" : "0" }));
+      return;
+    }
     if (!last) return;
     const { q } = last;
     const p = new URLSearchParams({
       o: data.munis[q.origin], d: data.munis[q.dest], date: q.date, time: last.time,
       h: q.holiday ? "1" : "0", t: q.transfers ? "1" : "0",
     });
+    if (!q.demand) p.set("e", "0");
     if (q.originStop) p.set("os", q.originStop);
     if (q.destStop) p.set("ds", q.destStop);
     if (state.tab !== "trips") p.set("tab", state.tab);
@@ -439,10 +532,18 @@
     $("allday").setAttribute("aria-pressed", String($("time").value === ""));
     for (const b of $("dayq").querySelectorAll("[data-day]"))
       b.setAttribute("aria-pressed", String(date === addDays(today, Number(b.dataset.day))));
-    if ($("os").value || $("ds").value || $("holiday").checked || !$("transfers").checked) $("more").open = true;
-    $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
-    const stops = [stopName("os"), stopName("ds")].filter(Boolean).join(" → ");
-    $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops].filter(Boolean).join(" · ");
+    if ($("os").value || $("ds").value || $("holiday").checked || !$("transfers").checked || !$("demand").checked) $("more").open = true;
+    const hn = HOL.holiday(date);
+    $("holname").textContent = hn ? `(${hn} · horario de domingo)` : "(horario de domingo)";
+    for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === state.mode));
+    if (state.mode === "line") {
+      $("psum-route").textContent = $("line").selectedOptions[0] ? $("line").selectedOptions[0].text.split(" · ")[0] + " · horario de la línea" : "Línea";
+      $("psum-when").textContent = shortDay(date);
+    } else {
+      $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
+      const stops = [stopName("os"), stopName("ds")].filter(Boolean).join(" → ");
+      $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops].filter(Boolean).join(" · ");
+    }
     renderRecent();
     renderSaved();
   }
@@ -450,12 +551,19 @@
   const lineNames = (r) => r.legs.map((l) => eng.line(l.route).name);
   const badge = (name) => `<span class="badge" style="background:${color(name)}">${esc(name)}</span>`;
 
-  function stats(direct) {
+  const comboKey = (r) => lineNames(r).join(" + ");
+
+  // Resumen por línea (o por combinación de líneas, si son viajes con trasbordo)
+  function stats(list) {
     const by = new Map();
-    for (const r of direct) {
-      const l = eng.line(r.legs[0].route);
-      if (!by.has(l.name)) by.set(l.name, { name: l.name, agency: l.agency, long: longName(l), deps: [], durs: [] });
-      by.get(l.name).deps.push(r.dep); by.get(l.name).durs.push(r.dur);
+    for (const r of list) {
+      const key = comboKey(r);
+      if (!by.has(key)) by.set(key, {
+        name: key, names: lineNames(r), deps: [], durs: [],
+        agency: [...new Set(r.legs.map((l) => eng.line(l.route).agency))].join(" / "),
+        long: r.legs.map((l) => longName(eng.line(l.route))).join(" + "),
+      });
+      by.get(key).deps.push(r.dep); by.get(key).durs.push(r.dur);
     }
     return [...by.values()].map((s) => {
       const n = s.deps.length;
@@ -466,6 +574,13 @@
   }
 
   function render(anim = false) {
+    if (state.mode === "line") {
+      if (!lastLine) return;
+      out.classList.toggle("anim", anim);
+      syncControls();
+      out.innerHTML = lineHtml();
+      return;
+    }
     if (!last) return;
     out.classList.toggle("anim", anim);
     combos.forEach((c) => c.sync());
@@ -476,7 +591,7 @@
     const isToday = q.date === todayStr();
     const nowMin = isToday ? toMin(nowStr()) : null;
 
-    const keepLine = (r) => !state.line || lineNames(r).includes(state.line);
+    const keepLine = (r) => !state.line || lineNames(r).includes(state.line) || lineNames(r).join(" + ") === state.line;
     const sorter = {
       dep: (a, b) => a.dep - b.dep || a.arr - b.arr,
       arr: (a, b) => a.arr - b.arr || a.dur - b.dur,
@@ -488,8 +603,41 @@
     const trans = (q.transfers ? res.transfer : []).filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
 
     out.innerHTML = summaryHtml(q, res, nowMin) + tabsHtml() +
-      (state.tab === "compare" ? compareHtml(res.direct) : tripsHtml(q, res, direct, trans, nowMin, minT));
+      (state.tab === "compare" ? compareHtml(res.direct.length ? res.direct : res.transfer, !res.direct.length) : tripsHtml(q, res, direct, trans, nowMin, minT));
   }
+
+  // ---- avisos oficiales, vigencia por operador ----
+  const noticesHtml = (names) => (data.notices || []).filter((n) => n.lines.some((l) => names.has(l)))
+    .map((n) => `<details class="notice official"><summary><b>Aviso oficial</b> · ${esc(n.title)} <small>${esc(n.date)}</small></summary><p>${esc(n.text)}</p></details>`).join("");
+
+  let agMunis = null; // operador -> municipios en los que para
+  function expiryHtml(q) {
+    if (!data.agencyInfo) return "";
+    if (!agMunis) {
+      agMunis = data.agencies.map(() => new Set());
+      for (const t of data.trips) for (const sid of t[3]) agMunis[data.routes[t[0]][3]].add(data.stops[sid][1]);
+    }
+    const di = Number(q.date.replaceAll("-", ""));
+    const late = data.agencies.map((_, a) => a).filter((a) => {
+      const end = data.agencyInfo[a].validTo;
+      return end && di > end && di <= data.validTo && (agMunis[a].has(q.origin) || agMunis[a].has(q.dest));
+    });
+    return late.length ? `<p class="notice">Los horarios de ${late.map((a) => `${esc(data.agencies[a])} (hasta el ${dmy(data.agencyInfo[a].validTo)})`).join(", ")} aún no están publicados para ese día, así que sus servicios no aparecen aunque puedan existir.</p>` : "";
+  }
+
+  const demandNote = `<p class="notice demand"><b>Servicio a demanda.</b> Hay que pedirlo llamando al <a href="tel:900300340">900 300 340</a> (08:00–20:00) con al menos 60 minutos de antelación; si sale antes de las 08:00, antes de las 20:00 de la víspera.</p>`;
+
+  function renderInfo() {
+    const list = data.notices || [];
+    $("notices").innerHTML = list.length
+      ? `<h3>Avisos oficiales (${list.length})</h3>` + list.map((n) => `<p><b>${esc(n.title)}</b> <small>${esc(n.date)}</small><br>${esc(n.text)}</p>`).join("") +
+        `<p class="muted">Copiados de lurraldebus.eus al actualizar los datos (una vez al día): pueden faltar los más recientes.</p>`
+      : "";
+    if (list.length) $("info").querySelector("summary").textContent = `Avisos (${list.length}), servicios a demanda y accesibilidad`;
+  }
+
+  // Destino/sentido del viaje (trip_headsign del GTFS); se omite si es solo un número de línea.
+  const headsign = (ti) => { const h = (data.trips[ti][2] || "").trim(); return h && !/^l[ií]nea\s*\d+$/i.test(h) ? h : ""; };
 
   function summaryHtml(q, res, nowMin) {
     const stopTxt = (sel) => (sel.value ? ` <span class="muted">(${esc(sel.selectedOptions[0].dataset.name)})</span>` : "");
@@ -504,22 +652,31 @@
       brief.push(`${res.transfer.length} con trasbordo`);
     }
     if (nowMin != null) {
-      const nxt = [...res.direct, ...(res.direct.length ? [] : res.transfer)].filter((r) => r.dep >= nowMin).sort((a, b) => a.dep - b.dep)[0];
+      // la próxima salida cuenta solo servicios regulares: uno a demanda hay que pedirlo antes
+      const nxt = [...res.direct, ...(res.direct.length ? [] : res.transfer)].filter((r) => r.dep >= nowMin && !isDemand(r)).sort((a, b) => a.dep - b.dep)[0];
       if (nxt) {
         kpis.push(`<div class="kpi"><b>${nxt.dep - nowMin} min</b><span>próxima salida</span></div>`);
         brief.unshift(`<b class="soon">${nxt.dep === nowMin ? "Sale ahora" : `Próximo en ${nxt.dep - nowMin} min`}</b>`);
       }
     }
+    const fare = fares && res.direct.length ? fares.fare(data.munis[q.origin], data.munis[q.dest]) : null;
+    if (fare) {
+      kpis.push(`<div class="kpi" title="Tarifa orientativa: ${fare.jumps} ${fare.jumps === 1 ? "salto" : "saltos"} entre ${esc(fare.zones[0])} y ${esc(fare.zones[1])}. Los trasbordos y algunas líneas pueden tener otra tarifa."><b>${FARES.eur(fare.mugi)}</b><span>con MUGI · ${FARES.eur(fare.ocasional)} billete</span></div>`);
+    }
     const dateInt = Number(q.date.replaceAll("-", ""));
     const outside = dateInt < data.validFrom || dateInt > data.validTo
       ? `<p class="notice">Ese día queda fuera del periodo con horarios publicados (${dmy(data.validFrom)} – ${dmy(data.validTo)}).</p>` : "";
+    const hn = HOL.holiday(q.date);
+    const holiday = hn && !q.holiday
+      ? `<p class="notice">Ese día es festivo (${esc(hn)}) y se muestra el horario de un día laborable. <button type="button" data-holiday>Ver horario de festivo</button></p>` : "";
+    const names = new Set([...res.direct, ...res.transfer].flatMap(lineNames));
     const saved = isSaved();
     return `<div class="summary"><div class="title">
         <h2>${esc(data.munis[q.origin])}${stopTxt($("os"))}<span class="arr">→</span>${esc(data.munis[q.dest])}${stopTxt($("ds"))}</h2>
-        <p class="muted when-line">${dayLabel(q.date)}${q.holiday ? " · festivo" : ""}${oneOp ? ` · ${esc(oneOp)}` : ""}</p></div>
+        <p class="muted when-line">${dayLabel(q.date)}${q.holiday ? ` · festivo${hn ? ` (${esc(hn)})` : ""}` : ""}${oneOp ? ` · ${esc(oneOp)}` : ""}</p></div>
         <div class="kpis">${kpis.join("")}</div>
         <div class="actions"><button type="button" class="star" data-star aria-pressed="${saved}" aria-label="${saved ? "Quitar de guardados" : "Guardar este viaje"}" title="${saved ? "Quitar de guardados" : "Guardar este viaje"}"><span class="ic" aria-hidden="true">${saved ? "★" : "☆"}</span><span class="t">${saved ? "Guardado" : "Guardar"}</span></button><button type="button" class="copy" data-share aria-label="Compartir enlace"><span class="ic" aria-hidden="true">↗</span><span class="t">Compartir</span></button></div>
-        <p class="brief">${brief.join(" · ")}</p></div>${outside}`;
+        <p class="brief">${brief.join(" · ")}</p></div>${outside}${holiday}${expiryHtml(q)}${noticesHtml(names)}`;
   }
 
   function tabsHtml() {
@@ -549,8 +706,15 @@
 
     html += cards(direct, nowMin, true);
     if (trans.length) {
-      html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} opciones${trans.length > 40 ? ", mostrando 40" : ""}</small></h3>` +
-        cards(trans.slice(0, 40), nowMin, false);
+      const cut = !state.allTrans && trans.length > 40;
+      html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} opciones${cut ? ", mostrando 40" : ""}</small></h3>` +
+        cards(cut ? trans.slice(0, 40) : trans, nowMin, false);
+    }
+    if (q.transfers && (res.hiddenWait || trans.length > 40 || state.allTrans)) {
+      const notes = [];
+      if (!state.allTrans && trans.length > 40) notes.push(`Se muestran 40 de ${trans.length} combinaciones.`);
+      if (!state.allTrans && res.hiddenWait) notes.push(`Hay ${res.hiddenWait} más con más de 2 h de espera, ocultas.`);
+      html += `<p class="more-note">${notes.join(" ")} <button type="button" data-alltrans>${state.allTrans ? "Ver solo las razonables" : "Ver todas"}</button></p>`;
     }
     return html;
   }
@@ -559,18 +723,58 @@
     if (!list.length) return "";
     const maxDur = Math.max(...list.map((r) => r.dur));
     const fastest = list.length > 1 ? Math.min(...list.map((r) => r.dur)) : -1;
-    const nextDep = markNext && nowMin != null ? Math.min(...list.filter((r) => r.dep >= nowMin).map((r) => r.dep)) : Infinity;
+    const nextDep = markNext && nowMin != null ? Math.min(...list.filter((r) => r.dep >= nowMin && !isDemand(r)).map((r) => r.dep)) : Infinity;
     let html = "", hour = null, nextDone = false, idx = 0;
     for (const r of list) {
       if (state.sort === "dep") {
         const h = Math.floor(r.dep / 60);
         if (h !== hour) { hour = h; html += `<div class="hour">${pad(h % 24)}:00${h >= 24 ? " +1" : ""}</div>`; }
       }
-      const isNext = !nextDone && r.dep === nextDep;
+      const isNext = !nextDone && r.dep === nextDep && !isDemand(r);
       if (isNext) nextDone = true;
       html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin, i: idx++ });
     }
     return html;
+  }
+
+  const safeUrl = (u) => (/^https?:\/\//i.test(u) ? u : "");
+
+  function legHtml(r, l, k) {
+    const t = data.trips[l.trip];
+    const li = eng.line(l.route);
+    const hs = headsign(l.trip);
+    const rows = [];
+    for (let p = l.i; p <= l.j; p++) {
+      const end = p === l.i || p === l.j;
+      const time = p === l.j ? t[4][p] : t[5][p];
+      // solo informativo en paradas intermedias: en el origen y el destino de tu tramo siempre se puede subir/bajar
+      const f = t[6].charCodeAt(p) - 48;
+      const tag = !end && f ? `<em class="rtag" title="${["", "En esta parada solo se puede bajar", "En esta parada solo se puede subir", "En esta parada no suben ni bajan viajeros"][f]}">${["", "solo bajada", "solo subida", "sin viajeros"][f]}</em>` : "";
+      rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}${tag}</span></li>`);
+    }
+    // El buscador baja en la primera parada del municipio destino; el mismo bus puede seguir parando dentro de él.
+    let more = "";
+    if (k === r.legs.length - 1 && !last.q.destStop) {
+      const dm = data.stops[t[3][l.j]][1], alts = [];
+      for (let p = l.j + 1; p < t[3].length && data.stops[t[3][p]][1] === dm; p++)
+        if (t[6].charCodeAt(p) - 48 < 2)
+          alts.push(`<li><time>${clockText(t[4][p] + l.shift)}</time><span>${esc(eng.stopName(t[3][p]))}</span></li>`);
+      if (alts.length) more = `<p class="alt-note">El mismo autobús sigue por ${esc(data.munis[dm])} y para también en:</p><ol class="alt-list">${alts.join("")}</ol>`;
+    }
+    const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${r.legs[1].dep - r.legs[0].arr} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
+    const po = buyable(l) && pesaStop(l.from), pd = buyable(l) && pesaStop(l.to);
+    const [yy, mm, dd] = last.q.date.split("-");
+    const buy = buyable(l)
+      ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
+        ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po.name)}</b> → <b>${esc(pd.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
+        <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
+    // Tiempo real: formulario normal hacia lurraldebus.eus (sin proxy); solo en paradas que esa web conoce.
+    const from = data.stops[l.from];
+    const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";
+    const acts = `<div class="leg-actions">${rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
+    const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
+    const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
+    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;
   }
 
   function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {
@@ -579,42 +783,28 @@
     const ops = [...new Set(r.legs.map((l) => eng.line(l.route).agency))].join(" / ");
     const inMin = nowMin != null && r.dep >= nowMin && r.dep - nowMin <= 180 ? r.dep - nowMin : null;
     const wait = r.transfers ? r.legs[1].dep - r.legs[0].arr : 0;
-    const soon = !r.transfers && inMin != null;
+    const demand = isDemand(r);
+    const soon = !r.transfers && inMin != null && !demand;
     const note = r.transfers ? `1 cambio · ${wait} min`
-      : soon ? (inMin === 0 ? "sale ahora" : `sale en ${inMin} min`) : "";
-    const detail = r.legs.map((l, k) => {
-      const t = data.trips[l.trip];
-      const li = eng.line(l.route);
-      const rows = [];
-      for (let p = l.i; p <= l.j; p++) {
-        const end = p === l.i || p === l.j;
-        const time = p === l.j ? t[4][p] : t[5][p];
-        rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}</span></li>`);
-      }
-      const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${wait} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-      const po = buyable(l) && pesaStop(l.from), pd = buyable(l) && pesaStop(l.to);
-      const [yy, mm, dd] = last.q.date.split("-");
-      const buy = buyable(l)
-        ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
-          ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po.name)}</b> → <b>${esc(pd.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
-          <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
-      return `${gap}<h3>${badge(li.name)} <span>${esc(longName(li))}</span></h3><ol>${rows.join("")}</ol>${buy}`;
-    }).join("");
-    return `<details class="trip${fastest ? " fastest" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
+      : demand ? "hay que pedirlo" : soon ? (inMin === 0 ? "sale ahora" : `sale en ${inMin} min`) : "";
+    const hs = r.transfers ? "" : headsign(first.trip);
+    const detail = r.legs.map((l, k) => legHtml(r, l, k)).join("") +
+      `<p class="muted fine">Horario programado: las horas de las paradas intermedias son estimaciones del operador.</p>`;
+    return `<details class="trip${fastest ? " fastest" : ""}${demand ? " demand" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
       <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
       <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
+      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
       </summary><div class="detail">${detail}</div></details>`;
   }
 
-  function compareHtml(direct) {
-    if (!direct.length)
-      return `<p class="empty">La comparación de líneas necesita servicios directos entre los dos municipios.</p>`;
-    const st = stats(direct).sort((a, b) => a.first - b.first);
-    const deps = direct.map((r) => r.dep);
+  function compareHtml(list, viaTransfer) {
+    if (!list.length)
+      return `<p class="empty">La comparación de líneas necesita servicios entre los dos municipios.</p>`;
+    const st = stats(list).sort((a, b) => a.first - b.first);
+    const deps = list.map((r) => r.dep);
     const start = Math.floor(Math.min(...deps) / 60) * 60;
     const end = Math.ceil((Math.max(...deps) + 1) / 60) * 60;
     const span = (end - start) / 60;
@@ -622,28 +812,109 @@
     const pos = (m) => (((m - start) / (end - start)) * 100).toFixed(2);
     let scale = "";
     for (let m = start; m <= end; m += step * 60) scale += `<span style="left:${pos(m)}%">${pad(Math.floor(m / 60) % 24)}</span>`;
+    const badges = (s) => s.names.map(badge).join(" + ");
     const rows = st.map((s) => {
-      const ticks = direct.filter((r) => r.legs[0] && eng.line(r.legs[0].route).name === s.name)
-        .map((r) => `<i style="left:${pos(r.dep)}%;background:${color(s.name)}" title="${clockText(r.dep)} · ${r.dur} min"></i>`).join("");
+      const ticks = list.filter((r) => comboKey(r) === s.name)
+        .map((r) => `<i style="left:${pos(r.dep)}%;background:${color(s.names[0])}" title="${clockText(r.dep)} · ${r.dur} min"></i>`).join("");
       return `<div class="tl-row${state.line === s.name ? " on" : ""}" data-line="${esc(s.name)}" title="${esc(s.long)}">
-        <div class="tl-name">${badge(s.name)}<span>${s.n} servicios</span></div>
+        <div class="tl-name">${s.names.map(badge).join("")}<span>${s.n} servicios</span></div>
         <div class="tl-track" style="--steps:${span / step}">${ticks}</div></div>`;
     }).join("");
 
     const byAvg = [...st].sort((a, b) => a.avg - b.avg);
     const bestAvg = byAvg[0].avg, bestN = Math.max(...st.map((s) => s.n));
     const table = byAvg.map((s) => `<tr data-line="${esc(s.name)}" title="${esc(s.long)}">
-        <td>${badge(s.name)}</td><td>${esc(s.agency)}</td>
+        <td>${badges(s)}</td><td>${esc(s.agency)}</td>
         <td class="${s.n === bestN ? "best" : ""}">${s.n}</td><td>${clock(s.first)}</td><td>${clock(s.last)}</td>
         <td>${s.every ? s.every + " min" : "—"}</td><td>${s.min} min</td>
         <td class="${s.avg === bestAvg ? "best" : ""}">${s.avg} min</td><td>${s.max} min</td></tr>`).join("");
 
-    return `<div class="card"><h3>Salidas a lo largo del día <span class="muted">· cada barra es un autobús</span></h3>
+    return (viaTransfer ? `<p class="notice">No hay autobús directo ese día: se comparan las combinaciones con un trasbordo.</p>` : "") +
+      `<div class="card"><h3>Salidas a lo largo del día <span class="muted">· cada barra es ${viaTransfer ? "una salida con trasbordo" : "un autobús"}</span></h3>
         <div class="tl-axis"><span></span><div class="tl-scale">${scale}</div></div>${rows}</div>
-      <div class="card"><h3>Resumen por línea <span class="muted">· ordenado por duración media</span></h3>
-        <div class="table-wrap"><table class="compare"><thead><tr><th>Línea</th><th>Operador</th><th>Servicios</th><th>Primero</th><th>Último</th><th>Cada</th><th>Mín</th><th>Media</th><th>Máx</th></tr></thead>
+      <div class="card"><h3>Resumen por ${viaTransfer ? "combinación" : "línea"} <span class="muted">· ordenado por duración media</span></h3>
+        <div class="table-wrap"><table class="compare"><thead><tr><th>${viaTransfer ? "Líneas" : "Línea"}</th><th>Operador</th><th>Servicios</th><th>Primero</th><th>Último</th><th>Cada</th><th>Mín</th><th>Media</th><th>Máx</th></tr></thead>
         <tbody>${table}</tbody></table></div>
-        <p class="muted" style="margin:10px 0 0">Pulsa una línea para ver solo sus viajes. En verde: más servicios y más rápida de media.</p></div>`;
+        <p class="muted" style="margin:10px 0 0">Pulsa una fila para ver solo sus viajes. En verde: más servicios y más rápida de media.</p></div>`;
+  }
+
+  // ---- vista «Horario de una línea» ----
+  function lineHtml() {
+    const { ri, date, holiday, tables, count } = lastLine;
+    const li = eng.line(ri);
+    const hn = HOL.holiday(date);
+    const dateInt = Number(date.replaceAll("-", ""));
+    const end = data.agencyInfo && data.agencyInfo[li.agencyIdx].validTo;
+    const info = [
+      dateInt < data.validFrom || dateInt > data.validTo ? `<p class="notice">Ese día queda fuera del periodo con horarios publicados (${dmy(data.validFrom)} – ${dmy(data.validTo)}).</p>` : "",
+      end && dateInt > end && dateInt <= data.validTo ? `<p class="notice">Los horarios de ${esc(li.agency)} solo están publicados hasta el ${dmy(end)}.</p>` : "",
+      hn && !holiday ? `<p class="notice">Ese día es festivo (${esc(hn)}) y se muestra el horario de un día laborable. <button type="button" data-holiday>Ver horario de festivo</button></p>` : "",
+      noticesHtml(new Set([li.name])), li.demand ? demandNote : "",
+    ].join("");
+    let html = `<div class="summary"><div class="title"><h2>${badge(li.name)} ${esc(longName(li))}</h2>
+        <p class="muted when-line">${dayLabel(date)}${holiday ? ` · festivo${hn ? ` (${esc(hn)})` : ""}` : ""} · ${esc(li.agency)}</p></div>
+        <div class="kpis"><div class="kpi"><b>${count}</b><span>viajes ese día</span></div></div></div>${info}`;
+    if (!tables.length) return html + `<p class="empty">Esta línea no circula ese día.</p>`;
+    const dir = Math.min(state.dir, tables.length - 1), tb = tables[dir];
+    if (tables.length > 1)
+      html += `<div class="tabs" role="tablist">${tables.map((x, k) => `<button type="button" role="tab" data-dir="${k}" aria-selected="${k === dir}">${esc(x.from)} → ${esc(x.to)} <small>${x.trips.length}</small></button>`).join("")}</div>`;
+    const nowMin = date === todayStr() ? toMin(nowStr()) : null;
+    const past = (c) => nowMin != null && c.dep < nowMin;
+    const head = tb.trips.map((c) => `<th class="${past(c) ? "past" : ""}">${clock(c.dep)}</th>`).join("");
+    // primera y última parada real de cada viaje: ahí «solo subida» / «solo bajada» es lo normal y no se marca
+    const ends = tb.trips.map((c) => { const idx = c.cells.flatMap((x, k) => (x ? [k] : [])); return [idx[0], idx[idx.length - 1]]; });
+    const body = tb.stops.map((sid, row) => `<tr><th scope="row"><span class="lt-muni">${esc(eng.stopMuni(sid))}</span>${esc(eng.stopName(sid))}</th>` +
+      tb.trips.map((c, ci) => {
+        const cell = c.cells[row];
+        if (!cell) return `<td class="no${past(c) ? " past" : ""}">·</td>`;
+        let f = Number(cell[1]);
+        if ((row === ends[ci][0] && f === 2) || (row === ends[ci][1] && f === 1)) f = 0;
+        const mark = f === 1 ? `<sup title="Solo se puede bajar">↓</sup>` : f === 2 ? `<sup title="Solo se puede subir">↑</sup>` : f === 3 ? `<sup title="No suben ni bajan viajeros">×</sup>` : "";
+        return `<td class="${past(c) ? "past" : ""}">${clock(cell[0])}${mark}</td>`;
+      }).join("") + "</tr>").join("");
+    return html + `<div class="card"><div class="table-wrap lt-wrap"><table class="lt"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <p class="muted" style="margin:10px 0 0">Cada columna es un viaje. <b>↓</b> solo bajada · <b>↑</b> solo subida · «·» el viaje no pasa por esa parada. Horario programado: las horas de las paradas intermedias son estimaciones del operador.</p></div>`;
+  }
+
+  // ---- mapa del tramo (Leaflet + OpenStreetMap, se carga solo al pedirlo) ----
+  let leafletLoad = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (!leafletLoad) leafletLoad = new Promise((ok, ko) => {
+      const css = document.createElement("link");
+      Object.assign(css, { rel: "stylesheet", href: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css", crossOrigin: "", integrity: "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" });
+      const js = document.createElement("script");
+      Object.assign(js, { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", crossOrigin: "", integrity: "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=",
+        onload: ok, onerror: () => { leafletLoad = null; ko(new Error("leaflet")); } });
+      document.head.append(css, js);
+    });
+    return leafletLoad;
+  }
+
+  function toggleMap(btn) {
+    const box = btn.closest(".leg").querySelector(".tmap");
+    if (!box.hidden) { box.hidden = true; btn.setAttribute("aria-pressed", "false"); return; }
+    box.hidden = false;
+    btn.setAttribute("aria-pressed", "true");
+    if (box.dataset.ready) return;
+    box.textContent = "Cargando mapa…";
+    loadLeaflet().then(() => {
+      const [ti, i, j] = btn.dataset.map.split(":").map(Number);
+      const ids = data.trips[ti][3].slice(i, j + 1);
+      const pts = ids.map((sid) => [data.stops[sid][2], data.stops[sid][3]]);
+      box.textContent = "";
+      const map = L.map(box, { scrollWheelZoom: false });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© colaboradores de OpenStreetMap" }).addTo(map);
+      L.polyline(pts, { color: "#007882", weight: 4, opacity: 0.8 }).addTo(map);
+      ids.forEach((sid, k) => {
+        const end = k === 0 || k === ids.length - 1;
+        L.circleMarker(pts[k], { radius: end ? 7 : 4, color: "#fff", weight: 2, fillColor: end ? "#007882" : "#8dc63f", fillOpacity: 1 })
+          .bindTooltip(esc(eng.stopMuni(sid) + " · " + eng.stopName(sid))).addTo(map);
+      });
+      map.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+      box.dataset.ready = "1";
+      box.insertAdjacentHTML("afterend", `<p class="muted fine map-note">Recorrido aproximado: une las paradas en línea recta.</p>`);
+    }).catch(() => { box.textContent = "No se pudo cargar el mapa (¿sin conexión?)."; });
   }
 
   // PWA: instalable y con los horarios disponibles sin conexión

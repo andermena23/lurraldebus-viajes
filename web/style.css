@@ -357,3 +357,68 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .compare th { font-size: .56rem; }
   .compare .badge { font-size: .72rem; padding: 2px 7px; }
 }
+
+/* selector de modo: buscar viaje / horario de una línea */
+.modes { display: flex; gap: 6px; margin: 16px 0 12px; position: relative; z-index: 2; }
+.modes button { background: var(--card); color: var(--ink); border-radius: 999px; padding: 7px 16px; font-size: .9rem; font-weight: 600; }
+.modes button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.modes + .panel { margin-top: 0; }
+.linesel { display: none; }
+.linemode .linesel { display: block; }
+.linemode .route, .linemode .timefield, .linemode details.more, .linemode .recent { display: none; }
+
+/* línea a demanda, sentido y restricciones de parada */
+.tag.demand { background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
+.dir { color: var(--ink); font-size: .8rem; font-weight: 600; }
+.detail h3 .dir { font-weight: 500; color: var(--muted); }
+.notice.demand { margin: 8px 0; }
+.rtag { margin-left: 8px; padding: 0 7px; border-radius: 999px; background: var(--chip); color: var(--muted); font-size: .68rem; font-style: normal; font-weight: 600; white-space: nowrap; }
+.alt-note { margin: 10px 0 4px; font-size: .82rem; color: var(--muted); }
+.alt-list { opacity: .8; }
+.alt-list li::before { background: transparent !important; border: 2px solid var(--line); width: 6px !important; height: 6px !important; }
+.detail .leg + .transfer-note, .detail .transfer-note + .leg { margin-top: 12px; }
+.fine { margin: 14px 0 0; font-size: .75rem; }
+
+/* acciones de cada tramo: tiempo real, mapa, horario de la línea */
+.leg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.leg-actions .rt { display: contents; }
+.leg-actions button { padding: 6px 12px; min-height: 36px; font-size: .84rem; border-radius: 8px; }
+.leg-actions button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tmap { height: 280px; margin-top: 10px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: .88rem; background: var(--bg); }
+.tmap[hidden] { display: none; }
+.map-note { margin: 6px 0 0; }
+.opinfo { margin: 10px 0 0; font-size: .8rem; }
+
+/* avisos oficiales (plegables) y notas bajo los resultados */
+details.notice > summary { cursor: pointer; }
+details.notice small { opacity: .8; margin-left: 4px; }
+details.notice p { margin: 8px 0 0; }
+.notice button, .more-note button { font-size: .85rem; padding: 4px 10px; min-height: 32px; margin-left: 6px; border-radius: 8px; }
+.more-note { margin: 14px 0; text-align: center; color: var(--muted); font-size: .88rem; }
+
+/* horario completo de una línea */
+.lt-wrap { max-height: 78vh; overflow: auto; }
+.lt { border-collapse: separate; border-spacing: 0; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.lt th, .lt td { padding: 6px 9px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--card); }
+.lt thead th { position: sticky; top: 0; z-index: 2; font-weight: 700; }
+.lt tbody th { position: sticky; left: 0; z-index: 1; text-align: left; font-weight: 500; min-width: 11rem; max-width: 15rem; white-space: normal; border-right: 1px solid var(--line); }
+.lt thead th:first-child { left: 0; z-index: 3; }
+.lt .lt-muni { display: block; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.lt td.no { color: var(--line); }
+.lt .past { opacity: .45; }
+.lt sup { font-size: .65em; color: var(--muted); margin-left: 1px; }
+.tabs button small { opacity: .7; }
+
+/* pie: avisos, demanda y accesibilidad */
+footer details.info { margin: 0 0 14px; padding: 10px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+footer details.info summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+footer details.info h3 { font-size: .85rem; margin: 14px 0 4px; color: var(--ink); }
+footer details.info p { margin: 4px 0; }
+
+@media (max-width: 700px) {
+  .modes { margin: 12px 0 10px; }
+  .who { flex-wrap: wrap; }
+  .who .dir { flex: none; }
+  .lt tbody th { min-width: 8.5rem; max-width: 10rem; }
+  .tmap { height: 240px; }
+}

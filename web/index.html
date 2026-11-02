@@ -50,6 +50,11 @@
 <div class="band"><div class="band-in"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z"/></svg>Planificar viaje</div></div>
 
 <main>
+  <div class="modes" role="tablist" aria-label="Qué quieres consultar">
+    <button type="button" role="tab" data-mode="trip" aria-selected="true">Buscar viaje</button>
+    <button type="button" role="tab" data-mode="line" aria-selected="false">Horario de una línea</button>
+  </div>
+
   <form id="form" class="panel" autocomplete="off">
     <!-- móvil: barra compacta que sustituye al formulario mientras se miran resultados -->
     <button type="button" id="psum" class="psum" aria-expanded="false" aria-controls="pfull">
@@ -58,6 +63,10 @@
     </button>
 
     <div id="pfull" class="pfull">
+      <div class="linesel field">
+        <label>Línea <select id="line"></select></label>
+      </div>
+
       <div class="route">
         <label>Origen <select id="o"></select></label>
         <button type="button" id="swap" class="icon" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino">⇄</button>
@@ -80,11 +89,11 @@
             <button type="button" data-day="1">Mañana</button>
           </div>
         </div>
-        <div class="field">
+        <div class="field timefield">
           <span class="lbl">Desde las</span>
           <input type="time" id="time" aria-label="Hora de salida mínima">
         </div>
-        <div class="field">
+        <div class="field timefield">
           <span class="lbl nolbl">&nbsp;</span>
           <div class="seg">
             <button type="button" id="now">Ahora</button>
@@ -101,7 +110,8 @@
         </div>
         <div class="opts">
           <label class="toggle"><input type="checkbox" id="transfers" checked><span>Incluir trasbordos</span></label>
-          <label class="toggle"><input type="checkbox" id="holiday"><span>Festivo <small>(horario de domingo)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="holiday"><span>Festivo <small id="holname">(horario de domingo)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="demand" checked><span>Incluir líneas a demanda <small>(hay que llamar antes)</small></span></label>
         </div>
       </details>
 
@@ -117,12 +127,34 @@
 </main>
 
 <footer>
-  Datos: GTFS oficiales de Lurraldebus (Punto de Acceso Nacional de Transporte, licencia abierta), actualizados a diario.
-  Son horarios programados, sin tiempo real. Revisa siempre la <a href="https://lurraldebus.eus" rel="noopener">web oficial</a> ante cambios o incidencias.
+  <details class="info" id="info">
+    <summary>Avisos, servicios a demanda y accesibilidad</summary>
+    <div id="notices"></div>
+    <h3>Servicios a demanda</h3>
+    <p>Las líneas cuyo código acaba en <b>E</b> (p. ej. TO22E, GO21E) solo circulan si se piden llamando al
+      <a href="tel:900300340">900 300 340</a> (de 08:00 a 20:00, todos los días) con al menos <b>60 minutos</b> de antelación
+      (si salen antes de las 08:00, antes de las 20:00 del día anterior). Algunas líneas también tienen paradas a demanda
+      (se piden con 30 minutos de antelación). Esta web no sabe cuáles son esas paradas.</p>
+    <h3>Accesibilidad y grupos</h3>
+    <p>Los autobuses están adaptados y siempre hay un hueco para silla de ruedas, pero en las líneas de largo recorrido
+      conviene reservarlo llamando al <a href="tel:900300340">900 300 340</a>. Los grupos (hasta 45 personas) deben avisar con una semana.
+      También hay servicios especiales (sidrerías, fiestas, eventos) que no figuran en los horarios.</p>
+    <h3>Tiempo real y más información</h3>
+    <p>En el detalle de cada viaje, «Tiempo real» abre la web oficial en esa parada, con minutos de espera y ocupación.
+      Más: <a href="https://lurraldebus.eus/notifications/index" rel="noopener">avisos oficiales</a> ·
+      <a href="https://lurraldebus.eus/info/tarifas_zonas" rel="noopener">tarifas y zonas</a> ·
+      <a href="https://lurraldebus.eus/info/servicios" rel="noopener">servicios especiales</a> ·
+      <a href="https://lurraldebus.eus/info/demanda" rel="noopener">servicios a demanda</a>.</p>
+  </details>
+  <p>Datos: GTFS oficiales de Lurraldebus (Punto de Acceso Nacional de Transporte, licencia abierta), actualizados a diario.
+  Son horarios programados, sin tiempo real, y las horas de las paradas intermedias son estimaciones del operador. Revisa siempre la
+  <a href="https://lurraldebus.eus" rel="noopener">web oficial</a> ante cambios o incidencias.</p>
 </footer>
 
 <script src="search.js?v=dev"></script>
 <script src="pesa.js?v=dev"></script>
+<script src="holidays.js?v=dev"></script>
+<script src="fares.js?v=dev"></script>
 <script src="app.js?v=dev"></script>
 </body>
 </html>

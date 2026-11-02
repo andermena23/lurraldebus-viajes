@@ -45,3 +45,30 @@ assert.strictEqual(ho, su);
 // fuera de vigencia
 assert.strictEqual(eng.search({ origin: m("Donostia"), dest: m("Irun"), date: "2025-01-01" }).direct.length, 0);
 console.log("OK");
+
+// Líneas a demanda: 16 líneas cuyo código acaba en E, marcadas en los datos
+const demand = data.routes.map((_, i) => eng.line(i)).filter((l) => l.demand);
+assert(demand.length >= 10 && demand.every((l) => /\dE$/i.test(l.name)), "líneas a demanda");
+assert(data.routes.every((rt, i) => eng.line(i).demand === /\dE$/i.test(rt[0])));
+
+// Horario de una línea: cuadro por sentido, paradas fusionadas y horas crecientes en cada viaje
+const uk01 = data.routes.findIndex((rt) => rt[0] === "UK01");
+const day = eng.lineDay(uk01, FRI);
+assert(day.length > 4, "UK01 tiene viajes un viernes");
+for (let i = 1; i < day.length; i++) assert(day[i].dep >= day[i - 1].dep);
+const tables = eng.lineTable(day);
+assert(tables.length >= 2, "al menos dos sentidos");
+for (const tb of tables) {
+  assert(tb.trips.length > 0 && tb.stops.length >= 2);
+  for (const c of tb.trips) {
+    const ts = c.cells.filter(Boolean).map((x) => x[0]);
+    assert(ts.length >= 2);
+    for (let i = 1; i < ts.length; i++) assert(ts[i] >= ts[i - 1], "horas crecientes dentro de un viaje");
+  }
+}
+console.log("líneas: UK01", day.length, "viajes en", tables.map((t) => `${t.from}→${t.to} (${t.trips.length})`).join(", "));
+
+// Viajes que cruzan la medianoche: el festivo de la víspera cuenta
+const anyHoliday = eng.search({ origin: m("Donostia"), dest: m("Irun"), date: FRI, holidayPrev: true });
+assert(anyHoliday.direct.length > 0);
+console.log("OK 2");

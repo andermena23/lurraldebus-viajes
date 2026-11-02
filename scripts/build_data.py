@@ -11,9 +11,12 @@ import io
 import json
 import re
 import sys
+import time
 import unicodedata
 import urllib.request
 import zipfile
+from http.cookiejar import CookieJar
+from html import unescape
 from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import median
@@ -57,9 +60,17 @@ def norm(s):
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 
-def get(url, timeout):
+def get(url, timeout, opener=None, tries=3):
+    """GET con reintentos (los espejos fallan de vez en cuando)."""
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 lurraldebus-viajes"})
-    return urllib.request.urlopen(req, timeout=timeout).read()
+    for n in range(1, tries + 1):
+        try:
+            return (opener.open(req, timeout=timeout) if opener else urllib.request.urlopen(req, timeout=timeout)).read()
+        except OSError as e:
+            if n == tries:
+                raise
+            print(f"  reintento {n}/{tries - 1} de {url}: {e}", file=sys.stderr)
+            time.sleep(3 * n)
 
 
 def fetch_latest_zip(feed_id):
@@ -78,8 +89,38 @@ def read_csv(z, name):
 
 
 def to_min(t):
-    h, m, _ = t.split(":")
-    return int(h) * 60 + int(m)
+    """HH:MM:SS -> minutos, redondeando los segundos (16:46:59 es la 16:47, no la 16:46)."""
+    h, m, sec = t.split(":")
+    return int(h) * 60 + int(m) + (1 if int(sec) >= 30 else 0)
+
+
+# Líneas a demanda: el código acaba en E (TO22E, GO21E...). Hay que pedirlas por teléfono con antelación.
+DEMAND = re.compile(r"\d[eE]$")
+
+NOTICES_URL = "https://lurraldebus.eus/notifications/index"
+
+
+def fetch_notices():
+    """Avisos oficiales de Lurraldebus (paradas suprimidas, incidencias...). Opcional: si falla, no se bloquea la build."""
+    try:
+        op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+        get("https://lurraldebus.eus/?language=es", 30, op)  # el idioma va en la sesión
+        page = get(NOTICES_URL, 30, op).decode("utf-8", "replace")
+        out = []
+        for blk in re.findall(r'<div class="alert-detail">(.*?)</div>\s*</div>', page, flags=re.S):
+            date = re.search(r'<p class="alert-data">\s*([^<]+?)\s*</p>', blk)
+            title = re.search(r'<h1 class="alert-title">\s*(.*?)\s*</h1>', blk, flags=re.S)
+            text = re.search(r'<div class="alert-text">(.*)', blk, flags=re.S)
+            if not (title and text):
+                continue
+            body = re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", text.group(1)))).strip()
+            out.append({"date": date.group(1) if date else "", "title": unescape(title.group(1)).strip(),
+                        "text": body, "lines": sorted(set(re.findall(r"\b([A-Z]{2}\d{2}[A-Z]?)\b", title.group(1) + " " + body)))})
+        print(f"{len(out)} avisos oficiales", file=sys.stderr)
+        return out
+    except Exception as e:  # noqa: BLE001 - los avisos son un extra
+        print(f"AVISO: no se pudieron leer los avisos oficiales ({e})", file=sys.stderr)
+        return None
 
 
 def split_prefix(name):
@@ -89,6 +130,50 @@ def split_prefix(name):
     return None, name.strip()
 
 
+def fetch_realtime(munis):
+    """{municipio: (código oficial, {ids de parada})} con las paradas que tienen tiempo real en lurraldebus.eus.
+    Opcional: si falla devuelve None y se conserva lo de la versión anterior."""
+    try:
+        op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+        home = get("https://lurraldebus.eus/?language=es", 30, op).decode("utf-8", "replace")
+        sel = re.search(r'id="RealMunicipioId">(.*?)</select>', home, flags=re.S).group(1)
+        # "Donostia / San Sebastián" -> "donostia"; "Arrasate/mondragón" -> "arrasate"
+        off = {norm(re.split(r"/", name)[0]): code for code, name in re.findall(
+            r'<option value="(\d+)">([^<]+)</option>', unescape(sel))}
+        out = {}
+        for m in munis:
+            code = off.get(norm(m))
+            if not code:
+                continue
+            req = urllib.request.Request(
+                "https://lurraldebus.eus/real/ajax_get_paradas_municipio_info.json",
+                data=f"municipioId={code}".encode(), headers={"User-Agent": "Mozilla/5.0 lurraldebus-viajes"})
+            r = json.loads(op.open(req, timeout=30).read())
+            out[m] = (int(code), {x["value"] for x in r.get("data", [])})
+            time.sleep(0.1)
+        if not out:
+            raise ValueError("sin municipios")
+        print(f"tiempo real oficial: {sum(len(v[1]) for v in out.values())} paradas en {len(out)} municipios", file=sys.stderr)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print(f"AVISO: no se pudo leer el tiempo real oficial ({e})", file=sys.stderr)
+        return None
+
+
+def check(data, feed_trips):
+    """Comprobaciones antes de escribir: mejor no publicar que publicar datos rotos."""
+    empty = [op for op, n in feed_trips.items() if n == 0]
+    if empty:
+        sys.exit(f"feeds sin viajes: {', '.join(empty)}")
+    if OUT.exists():
+        old = json.loads(OUT.read_text(encoding="utf-8"))
+        for what, a, b in (("viajes", len(old["trips"]), len(data["trips"])),
+                           ("paradas", len(old["stops"]), len(data["stops"])),
+                           ("municipios", len(old["munis"]), len(data["munis"]))):
+            if b < a * 0.8:
+                sys.exit(f"sospechoso: {what} pasan de {a} a {b} (más de un 20 % menos); revisa los feeds")
+
+
 def main():
     raw = []  # (feed_id, operador, muni fijo, stops, routes, trips, stop_times, calendar)
     for fid, (op, fixed) in FEEDS.items():
@@ -96,7 +181,7 @@ def main():
         z = zipfile.ZipFile(io.BytesIO(fetch_latest_zip(fid)))
         raw.append((fid, op, fixed, {n: read_csv(z, n) for n in (
             "stops.txt", "routes.txt", "trips.txt", "stop_times.txt", "calendar.txt",
-            "calendar_dates.txt")}))
+            "calendar_dates.txt", "agency.txt", "feed_info.txt")}))
 
     # 1) municipios canónicos: prefijos frecuentes de las paradas interurbanas
     prefix_count = Counter()
@@ -147,9 +232,16 @@ def main():
         return muni_idx[name]
 
     stops, agencies, routes, services, trips = [], [], [], [], []
+    agency_info, feed_dates, feed_trips = [], [], {}
     for fid, op, fixed, t in raw:
         agencies.append(op)
         ai = len(agencies) - 1
+        ag = (t["agency.txt"] or [{}])[0]
+        agency_info.append({k: (ag.get(c) or "").strip() for k, c in (("phone", "agency_phone"), ("url", "agency_url"))})
+        fi = (t["feed_info.txt"] or [{}])[0]
+        if (fi.get("feed_version") or "")[:8].isdigit():
+            feed_dates.append(int(fi["feed_version"][:8]))
+        n_trips0, svc0 = len(trips), len(services)
         stop_ref = {}
         for s in t["stops.txt"]:
             p, rest = split_prefix(s["stop_name"])
@@ -159,12 +251,15 @@ def main():
             if not m:
                 m = nearest(lat, lon)
             stop_ref[s["stop_id"]] = len(stops)
-            stops.append([label, mi(m), round(lat, 5), round(lon, 5)])
+            # el stop_id es el código oficial de la parada (sirve para abrir su tiempo real en lurraldebus.eus)
+            stops.append([label, mi(m), round(lat, 5), round(lon, 5), s["stop_id"]])
         route_ref = {}
         for r in t["routes.txt"]:
             route_ref[r["route_id"]] = len(routes)
-            routes.append([r["route_short_name"].strip() or r["route_id"],
-                           r["route_long_name"].strip(), r.get("route_text_color", ""), ai])
+            name = r["route_short_name"].strip() or r["route_id"]
+            # [código, nombre largo, color, operador, 1 si es a demanda]
+            routes.append([name, r["route_long_name"].strip(), r.get("route_text_color", ""), ai,
+                           int(bool(DEMAND.search(name)))])
         svc_ref = {}
         for c in t["calendar.txt"]:
             svc_ref[c["service_id"]] = len(services)
@@ -195,13 +290,37 @@ def main():
                         for x in sts),
             ])
 
+        feed_trips[op] = len(trips) - n_trips0
+        # vigencia propia de cada operador (los urbanos caducan antes que los interurbanos)
+        used = {tr[1] for tr in trips[n_trips0:]}
+        agency_info[-1]["validTo"] = max((services[i][2] for i in used), default=0)
+
+    # 6º campo de cada parada: código oficial del municipio si la parada tiene tiempo real en lurraldebus.eus, o 0
+    rt = fetch_realtime(munis)
+    if rt is not None:
+        for st in stops:
+            code, ids = rt.get(munis[st[1]], (0, ()))
+            st.append(code if st[4] in ids else 0)
+    else:
+        old = json.loads(OUT.read_text(encoding="utf-8")) if OUT.exists() else {"stops": [], "munis": []}
+        prev = {(x[0], old["munis"][x[1]], x[4]): x[5] for x in old["stops"] if len(x) > 5}
+        for st in stops:
+            st.append(prev.get((st[0], munis[st[1]], st[4]), 0))
+
     ends = [s[2] for s in services]
     starts = [s[1] for s in services]
     data = {
         "validFrom": min(starts), "validTo": max(ends),
-        "munis": munis, "agencies": agencies, "stops": stops,
+        "feedDate": max(feed_dates, default=0),  # fecha de los feeds (solo cambia cuando cambian ellos)
+        "munis": munis, "agencies": agencies, "agencyInfo": agency_info, "stops": stops,
         "routes": routes, "services": services, "trips": trips,
     }
+    notices = fetch_notices()
+    if notices is not None:
+        data["notices"] = notices
+    elif OUT.exists():  # no se pudo leer: conservar los de la versión anterior
+        data["notices"] = json.loads(OUT.read_text(encoding="utf-8")).get("notices", [])
+    check(data, feed_trips)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"{len(munis)} municipios, {len(stops)} paradas, {len(routes)} líneas, "

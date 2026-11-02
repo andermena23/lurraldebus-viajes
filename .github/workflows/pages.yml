@@ -32,8 +32,11 @@ jobs:
 
       - name: Tests
         run: |
+          node test/data.test.js
           node test/search.test.js
           node test/pesa.test.js
+          node test/holidays.test.js
+          node test/fares.test.js
 
       - name: Guardar los datos nuevos en el repo
         if: github.event_name != 'push'

@@ -45,15 +45,16 @@
     }
 
     // Viajes activos en una fecha. shift=-1440 son viajes del día anterior que cruzan la medianoche.
-    function activeTrips(dateStr, holiday) {
-      const key = dateStr + (holiday ? "H" : "");
+    // holiday / holidayPrev: ese día (y el anterior, para los que cruzan la medianoche) se rige por el horario de domingo.
+    function activeTrips(dateStr, holiday, holidayPrev = false) {
+      const key = dateStr + (holiday ? "H" : "") + (holidayPrev ? "P" : "");
       if (activeCache.has(key)) return activeCache.get(key);
       const d = new Date(dateStr + "T12:00:00");
       const wd = (d.getDay() + 6) % 7; // lunes=0
       const prev = new Date(d.getTime() - 864e5);
       const toInt = (x) => x.getFullYear() * 10000 + (x.getMonth() + 1) * 100 + x.getDate();
       const runsToday = services.map((_, i) => serviceRuns(i, toInt(d), wd, holiday));
-      const runsYest = services.map((_, i) => serviceRuns(i, toInt(prev), (wd + 6) % 7, false));
+      const runsYest = services.map((_, i) => serviceRuns(i, toInt(prev), (wd + 6) % 7, holidayPrev));
       const out = [];
       trips.forEach((t, ti) => {
         if (runsToday[t[1]]) out.push({ ti, shift: 0 });
@@ -117,10 +118,10 @@
       return r;
     }
 
-    function search({ origin, dest, originStop, destStop, date, holiday = false, transfers = true }) {
+    function search({ origin, dest, originStop, destStop, date, holiday = false, holidayPrev = false, transfers = true }) {
       const O = stopSet(origin, originStop);
       const D = stopSet(dest, destStop);
-      const active = activeTrips(date, holiday);
+      const active = activeTrips(date, holiday, holidayPrev);
       const direct = [];
       for (const { ti, shift } of active) {
         const t = trips[ti];
@@ -200,11 +201,53 @@
         (r) => !direct.some((d) => d.dep >= r.dep && d.arr <= r.arr));
     }
 
+    // Viajes de una línea en un día (con el desplazamiento de los que vienen de la víspera).
+    function lineDay(route, date, holiday = false, holidayPrev = false) {
+      return activeTrips(date, holiday, holidayPrev).filter(({ ti }) => trips[ti][0] === route)
+        .map(({ ti, shift }) => ({ ti, shift, dep: trips[ti][5][0] + shift }))
+        .filter((x) => x.dep >= 0).sort((a, b) => a.dep - b.dep);
+    }
+
+    // Horario completo de una línea: un cuadro por sentido (agrupado por municipio final), con las paradas de todos los
+    // viajes fusionadas en orden (filas) y un viaje por columna. Cada celda es [minutos, banderas] o null si no pasa por ahí.
+    function lineTable(items) {
+      const groups = new Map();
+      for (const it of items) {
+        const ids = trips[it.ti][3];
+        const k = stops[ids[0]][1] + ">" + stops[ids[ids.length - 1]][1];
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(it);
+      }
+      return [...groups.values()].map((list) => {
+        const longest = list.reduce((a, b) => (trips[b.ti][3].length > trips[a.ti][3].length ? b : a));
+        const order = [...trips[longest.ti][3]];
+        for (const it of list) {
+          let at = -1; // posición en `order` de la última parada ya colocada de este viaje
+          for (const sid of trips[it.ti][3]) {
+            const pos = order.indexOf(sid);
+            if (pos >= 0) at = pos;
+            else { order.splice(at + 1, 0, sid); at += 1; }
+          }
+        }
+        const cols = list.map((it) => {
+          const t = trips[it.ti], cells = new Array(order.length).fill(null);
+          t[3].forEach((sid, p) => {
+            const row = order.indexOf(sid);
+            if (row >= 0 && !cells[row]) cells[row] = [(p === t[3].length - 1 ? t[4][p] : t[5][p]) + it.shift, t[6][p]];
+          });
+          return { ...it, cells, headsign: t[2] };
+        });
+        const first = stops[order[0]][1], last = stops[order[order.length - 1]][1];
+        return { from: munis[first], to: munis[last], stops: order, trips: cols };
+      }).sort((a, b) => b.trips.length - a.trips.length);
+    }
+
     return {
-      data, search, pairStops, neighbors,
+      data, search, pairStops, neighbors, lineDay, lineTable,
       muniStops: (m) => stopsByMuni[m],
       stopTime: (ti, pos) => trips[ti][5][pos],
-      line: (ri) => ({ name: routes[ri][0], long: routes[ri][1], color: routes[ri][2], agency: agencies[routes[ri][3]] }),
+      line: (ri) => ({ name: routes[ri][0], long: routes[ri][1], color: routes[ri][2], agency: agencies[routes[ri][3]],
+        agencyIdx: routes[ri][3], demand: routes[ri][4] === 1 }),
       stopName: (si) => stops[si][0],
       stopMuni: (si) => munis[stops[si][1]],
     };

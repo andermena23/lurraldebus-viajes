@@ -54,7 +54,7 @@ footer { max-width: 980px; margin: 0 auto; padding: 0 16px 32px; color: var(--mu
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 22px 20px; box-shadow: 0 4px 14px rgba(0, 60, 70, .14); margin-top: -20px; position: relative; }
 label, .lbl { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); min-width: 0; }
 .lbl { display: block; margin-bottom: 4px; }
-select, input[type=date], input[type=time] {
+select, input[type=date], input[type=time], .settings input[type=text] {
   font: inherit; font-size: 1rem; color: var(--ink); background: var(--bg);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; min-height: 44px;
 }
@@ -417,7 +417,21 @@ footer details.info summary { cursor: pointer; font-weight: 600; color: var(--in
 footer details.info h3 { font-size: .85rem; margin: 14px 0 4px; color: var(--ink); }
 footer details.info p { margin: 4px 0; }
 
+/* pestañas de sentido (horario de línea): en filas que se parten, nunca se salen de la pantalla */
+.tabs.dirs { flex-wrap: wrap; gap: 6px; border-bottom: 0; }
+.tabs.dirs button { flex: 1 1 14rem; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); }
+.tabs.dirs button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tabs.dirs button small { opacity: .8; }
+
+/* avisos de una sola línea (se despliegan al tocarlos) */
+details.notice > summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.notice[open] > summary { white-space: normal; }
+.notice.compact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.notice.compact button { margin-left: 0; }
+
 @media (max-width: 700px) {
+  #out, .tabs { scroll-margin-top: 88px; } /* la barra fija «Cambiar» no debe tapar lo que se muestra al saltar */
+  .tabs.dirs button { flex-basis: calc(50% - 6px); font-size: .9rem; padding: 8px 6px; }
   .modes { margin: 12px 0 10px; }
   .who { flex-wrap: wrap; }
   .who .dir { flex: none; }

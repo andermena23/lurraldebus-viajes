@@ -26,12 +26,13 @@
     return li.long.replace(new RegExp("^" + code + "\\s*-\\s*", "i"), "")
       .split(">").map((x) => x.trim()).filter(Boolean).map((x) => x[0].toUpperCase() + x.slice(1)).join(" › ");
   };
+  const pl = (n, one, many) => (n === 1 ? one : many);
   const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${pad(m % 60)} min` : `${m} min`);
   const dayFmt = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
   const dayLabel = (s) => { const t = dayFmt.format(new Date(s + "T12:00:00")); return t[0].toUpperCase() + t.slice(1); };
 
   let eng, data, fares = null, last = null;
-  const state = { tab: "trips", sort: "dep", line: null, mode: "trip", allTrans: false, lineKey: "", dir: 0 };
+  const state = { tab: "trips", sort: "dep", line: null, mode: "trip", allTrans: false, lineKey: "", dir: 0, dirTrip: null };
   const out = $("out");
   let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
   let live = false; // true mientras "Desde las" sigue a la hora actual
@@ -367,7 +368,13 @@
     if (state.mode === m) return;
     state.mode = m;
     $("form").classList.toggle("linemode", m === "line");
-    setCollapsed(false);
+    // Al pasar a «Horario de una línea» se abre la del viaje que estabas mirando (en vez de una cualquiera de la lista).
+    let picked = false;
+    if (m === "line" && last) {
+      const r = last.res.direct[0] || last.res.transfer[0];
+      if (r) { $("line").value = lineKey(r.legs[0].route); state.dir = 0; state.dirTrip = r.legs[0].trip; picked = true; }
+    }
+    setCollapsed(m === "line" ? picked : !!last); // con resultados que enseñar no hace falta dejar el formulario abierto
     run();
   }
 
@@ -439,7 +446,7 @@
     if ((el = t.closest("[data-dir]"))) { state.dir = Number(el.dataset.dir); return render(); }
     if (t.closest("[data-alltrans]")) { state.allTrans = !state.allTrans; return run({ refresh: true }); }
     if (t.closest("[data-holiday]")) { $("holiday").checked = true; return run({ refresh: true }); }
-    if ((el = t.closest("[data-linefor]"))) return showLine(Number(el.dataset.linefor));
+    if ((el = t.closest("[data-linefor]"))) return showLine(Number(el.dataset.linefor), Number(el.dataset.trip));
     if ((el = t.closest("[data-map]"))) return toggleMap(el);
     if (t.closest("[data-allday]")) return $("allday").click();
     if (t.closest("[data-star]")) return toggleSaved();
@@ -449,9 +456,10 @@
   }
 
   // Abre el horario completo de una línea (desde el detalle de un viaje)
-  function showLine(ri) {
+  function showLine(ri, trip) {
     $("line").value = lineKey(ri);
     state.dir = 0;
+    state.dirTrip = trip;
     state.mode = "line";
     $("form").classList.add("linemode");
     run();
@@ -530,6 +538,11 @@
     const holiday = $("holiday").checked;
     const items = eng.lineDay(ri, date, holiday, prevHoliday(date));
     lastLine = { ri, date, holiday, tables: eng.lineTable(items), count: items.length };
+    if (state.dirTrip != null) { // venimos de un viaje: abrir el sentido de ese viaje
+      const k = lastLine.tables.findIndex((tb) => tb.trips.some((c) => c.ti === state.dirTrip));
+      if (k >= 0) state.dir = k;
+      state.dirTrip = null;
+    }
     if (!opts.refresh) state.dir = Math.min(state.dir, Math.max(0, lastLine.tables.length - 1));
     save();
     render(!opts.refresh);
@@ -636,7 +649,7 @@
 
   // ---- avisos oficiales, vigencia por operador ----
   const noticesHtml = (names) => (data.notices || []).filter((n) => n.lines.some((l) => names.has(l)))
-    .map((n) => `<details class="notice official"><summary><b>Aviso oficial</b> · ${esc(n.title)} <small>${esc(n.date)}</small></summary><p>${esc(n.text)}</p></details>`).join("");
+    .map((n) => `<details class="notice official"><summary><b>Aviso oficial</b> · ${esc(n.title)}</summary><p>${esc(n.text)}</p><p><small>${esc(n.date)}</small></p></details>`).join("");
 
   let agMunis = null; // operador -> municipios en los que para
   function expiryHtml(q) {
@@ -672,9 +685,9 @@
     const kpis = [], brief = [];
     if (res.direct.length) {
       const fast = Math.min(...res.direct.map((r) => r.dur));
-      kpis.push(`<div class="kpi"><b>${res.direct.length}</b><span>servicios directos</span></div>`);
+      kpis.push(`<div class="kpi"><b>${res.direct.length}</b><span>${pl(res.direct.length, "servicio directo", "servicios directos")}</span></div>`);
       kpis.push(`<div class="kpi good"><b>${fast} min</b><span>el más rápido</span></div>`);
-      brief.push(`${res.direct.length} directos`, `el más rápido, ${fast} min`);
+      brief.push(`${res.direct.length} ${pl(res.direct.length, "directo", "directos")}`, `el más rápido, ${fast} min`);
     } else if (res.transfer.length) {
       kpis.push(`<div class="kpi"><b>${res.transfer.length}</b><span>con trasbordo</span></div>`);
       brief.push(`${res.transfer.length} con trasbordo`);
@@ -691,12 +704,13 @@
     if (fare) {
       kpis.push(`<div class="kpi" title="Tarifa orientativa: ${fare.jumps} ${fare.jumps === 1 ? "salto" : "saltos"} entre ${esc(fare.zones[0])} y ${esc(fare.zones[1])}. Los trasbordos y algunas líneas pueden tener otra tarifa."><b>${FARES.eur(fare.mugi)}</b><span>con MUGI · ${FARES.eur(fare.ocasional)} billete</span></div>`);
     }
+    if (fare) brief.push(`${FARES.eur(fare.mugi)} con MUGI`); // en móvil los KPI no se ven; el resumen sí
     const dateInt = Number(q.date.replaceAll("-", ""));
     const outside = dateInt < data.validFrom || dateInt > data.validTo
       ? `<p class="notice">Ese día queda fuera del periodo con horarios publicados (${dmy(data.validFrom)} – ${dmy(data.validTo)}).</p>` : "";
     const hn = HOL.holiday(q.date);
     const holiday = hn && !q.holiday
-      ? `<p class="notice">Ese día es festivo (${esc(hn)}) y se muestra el horario de un día laborable. <button type="button" data-holiday>Ver horario de festivo</button></p>` : "";
+      ? `<p class="notice compact"><span>Festivo (${esc(hn)}): se muestra el horario de laborable.</span> <button type="button" data-holiday>Ver el de festivo</button></p>` : "";
     const names = new Set([...res.direct, ...res.transfer].flatMap(lineNames));
     const saved = isSaved();
     return `<div class="summary"><div class="title">
@@ -735,7 +749,7 @@
     html += cards(direct, nowMin, true);
     if (trans.length) {
       const cut = !state.allTrans && trans.length > 40;
-      html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} opciones${cut ? ", mostrando 40" : ""}</small></h3>` +
+      html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} ${pl(trans.length, "opción", "opciones")}${cut ? ", mostrando 40" : ""}</small></h3>` +
         cards(cut ? trans.slice(0, 40) : trans, nowMin, false);
     }
     if (q.transfers && (res.hiddenWait || trans.length > 40 || state.allTrans)) {
@@ -799,7 +813,7 @@
     // Tiempo real: formulario normal hacia lurraldebus.eus (sin proxy); solo en paradas que esa web conoce.
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";
-    const acts = `<div class="leg-actions">${rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
+    const acts = `<div class="leg-actions">${rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
     return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;
@@ -845,7 +859,7 @@
       const ticks = list.filter((r) => comboKey(r) === s.name)
         .map((r) => `<i style="left:${pos(r.dep)}%;background:${color(s.names[0])}" title="${clockText(r.dep)} · ${r.dur} min"></i>`).join("");
       return `<div class="tl-row${state.line === s.name ? " on" : ""}" data-line="${esc(s.name)}" title="${esc(s.long)}">
-        <div class="tl-name">${s.names.map(badge).join("")}<span>${s.n} servicios</span></div>
+        <div class="tl-name">${s.names.map(badge).join("")}<span>${s.n} ${pl(s.n, "servicio", "servicios")}</span></div>
         <div class="tl-track" style="--steps:${span / step}">${ticks}</div></div>`;
     }).join("");
 
@@ -881,11 +895,11 @@
     ].join("");
     let html = `<div class="summary"><div class="title"><h2>${badge(li.name)} ${esc(longName(li))}</h2>
         <p class="muted when-line">${dayLabel(date)}${holiday ? ` · festivo${hn ? ` (${esc(hn)})` : ""}` : ""} · ${esc(li.agency)}</p></div>
-        <div class="kpis"><div class="kpi"><b>${count}</b><span>viajes ese día</span></div></div></div>${info}`;
+        <div class="kpis"><div class="kpi"><b>${count}</b><span>${pl(count, "viaje ese día", "viajes ese día")}</span></div></div></div>${info}`;
     if (!tables.length) return html + `<p class="empty">Esta línea no circula ese día.</p>`;
     const dir = Math.min(state.dir, tables.length - 1), tb = tables[dir];
     if (tables.length > 1)
-      html += `<div class="tabs" role="tablist">${tables.map((x, k) => `<button type="button" role="tab" data-dir="${k}" aria-selected="${k === dir}">${esc(x.from)} → ${esc(x.to)} <small>${x.trips.length}</small></button>`).join("")}</div>`;
+      html += `<div class="tabs dirs" role="tablist">${tables.map((x, k) => `<button type="button" role="tab" data-dir="${k}" aria-selected="${k === dir}">${esc(x.from)} → ${esc(x.to)} <small>${x.trips.length}</small></button>`).join("")}</div>`;
     const nowMin = date === todayStr() ? toMin(nowStr()) : null;
     const past = (c) => nowMin != null && c.dep < nowMin;
     const nextIdx = nowMin != null ? tb.trips.findIndex((c) => !past(c)) : -1; // primer viaje que aún no ha salido

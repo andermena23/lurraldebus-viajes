@@ -82,7 +82,7 @@
     $("validity").textContent =
       `${d.agencies.length} operadores · ${d.routes.length} líneas · horarios del ${dmy(d.validFrom)} al ${dmy(d.validTo)}` +
       (d.feedDate ? ` · datos del ${dmy(d.feedDate)}` : "");
-    fillLines();
+    combo($("line"), null, { placeholder: "Línea, municipio o parada…", more: fillLines() });
     renderInfo();
 
     const p = new URLSearchParams(location.hash.slice(1));
@@ -251,13 +251,15 @@
   // primera coincidencia. El <select> original queda oculto como fuente de verdad (value = índice).
   const combos = [];
 
-  function combo(sel, nextId) {
+  // cfg.placeholder: texto del campo. cfg.more: Map(valor -> [nombres]) con texto extra buscable (p. ej. paradas por las que
+  // pasa una línea); si la coincidencia viene de ahí, la lista indica «pasa por …».
+  function combo(sel, nextId, cfg = {}) {
     const wrap = document.createElement("div");
     wrap.className = "combo";
     const input = document.createElement("input");
     input.type = "text";
     input.className = "combo-in";
-    input.placeholder = "Escribe un municipio…";
+    input.placeholder = cfg.placeholder || "Escribe un municipio…";
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-autocomplete", "list");
     input.setAttribute("aria-expanded", "false");
@@ -272,7 +274,11 @@
     sel.tabIndex = -1;
     sel.setAttribute("aria-hidden", "true");
 
-    const items = [...sel.options].map((o) => ({ value: o.value, text: o.text, key: plain(o.text) }));
+    const items = [...sel.options].map((o) => {
+      const more = (cfg.more && cfg.more.get(o.value)) || [];
+      return { value: o.value, text: o.text, key: plain(o.text), more, moreKey: plain(more.join("|")),
+        group: o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "" };
+    });
     let shown = [], active = 0;
 
     const label = () => sel.selectedOptions[0]?.text || "";
@@ -281,10 +287,20 @@
 
     function open() {
       const q = plain(input.value === label() ? "" : input.value);
-      shown = items.filter((i) => i.key.startsWith(q)).concat(items.filter((i) => !i.key.startsWith(q) && i.key.includes(q)));
+      const toks = q.split(/\s+/).filter(Boolean);
+      // 0: empieza por lo escrito; 1: todas las palabras están en el nombre; 2: están entre nombre y paradas; 3: no coincide
+      const rank = (i) => !q || i.key.startsWith(q) ? 0
+        : toks.every((t) => i.key.includes(t)) ? 1
+        : toks.every((t) => (i.key + " " + i.moreKey).includes(t)) ? 2 : 3;
+      shown = items.filter((i) => rank(i) < 3).sort((a, b) => rank(a) - rank(b));
       active = 0;
+      const sub = (i) => {
+        const hint = q && rank(i) === 2 ? i.more.find((n) => toks.some((t) => !i.key.includes(t) && plain(n).includes(t))) : "";
+        const parts = [i.group, hint && "pasa por " + hint].filter(Boolean);
+        return parts.length ? `<small>${esc(parts.join(" · "))}</small>` : "";
+      };
       list.innerHTML = shown.length
-        ? shown.map((i, k) => `<li role="option" data-k="${k}"${i.value === sel.value ? ' aria-selected="true"' : ""}>${esc(i.text)}</li>`).join("")
+        ? shown.map((i, k) => `<li role="option" data-k="${k}"${i.value === sel.value ? ' aria-selected="true"' : ""}>${esc(i.text)}${sub(i)}</li>`).join("")
         : `<li class="none">Sin resultados</li>`;
       mark();
       list.hidden = false;
@@ -370,6 +386,16 @@
       .map(([ai, list]) => `<optgroup label="${esc(data.agencies[ai])}">` + list
         .sort((a, b) => collator.compare(data.routes[a][0], data.routes[b][0]))
         .map((ri) => `<option value="${esc(lineKey(ri))}">${esc(data.routes[ri][0])} · ${esc(longName(eng.line(ri)))}</option>`).join("") + "</optgroup>").join("");
+    // municipios y paradas por los que pasa cada línea, para buscarla por ellos
+    const seen = data.routes.map(() => new Set());
+    for (const t of data.trips) for (const sid of t[3]) seen[t[0]].add(sid);
+    const more = new Map();
+    seen.forEach((ids, ri) => {
+      const munis = new Set(), names = new Set();
+      for (const sid of ids) { munis.add(data.munis[data.stops[sid][1]]); names.add(data.stops[sid][0]); }
+      more.set(lineKey(ri), [...munis, ...names]);
+    });
+    return more;
   }
 
   function refreshStops(osKeep, dsKeep) {
@@ -577,6 +603,7 @@
     if (state.mode === "line") {
       if (!lastLine) return;
       out.classList.toggle("anim", anim);
+      combos.forEach((c) => c.sync());
       syncControls();
       out.innerHTML = lineHtml();
       return;

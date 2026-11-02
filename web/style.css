@@ -68,6 +68,7 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px s
 .combo-list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: .95rem; color: var(--ink); }
 .combo-list li.active { background: var(--accent); color: var(--accent-ink); }
 .combo-list li[aria-selected=true]:not(.active) { font-weight: 700; }
+.combo-list li small { display: block; font-size: .75rem; opacity: .75; margin-top: 1px; }
 .combo-list li.none { color: var(--muted); cursor: default; }
 .more { margin-top: 18px; }
 .more > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--accent); padding: 8px 0; list-style: none; }

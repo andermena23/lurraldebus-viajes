@@ -46,6 +46,34 @@
   // Desvío circular más corto entre dos minutos del día: a - b en [-720, 720].
   const diff = (a, b) => { const d = mod(a - b); return d > 720 ? d - 1440 : d; };
 
+  // Texto de frescura del tablero: «ahora mismo», «hace 20 s», «hace 2 min».
+  function agoText(updatedAt, now) {
+    if (!updatedAt) return "";
+    const s = Math.max(0, Math.round(((now == null ? Date.now() : now) - updatedAt) / 1000));
+    if (s < 10) return "ahora mismo";
+    if (s < 60) return `hace ${s} s`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `hace ${m} min`;
+    return `hace ${Math.round(m / 60)} h`;
+  }
+
+  // Ocupación oficial (porcentaje) con una etiqueta cualitativa.
+  function occInfo(n) {
+    if (n == null || !isFinite(n)) return null;
+    const pct = clamp(Math.round(n), 0, 100);
+    const label = pct < 30 ? "libre" : pct < 70 ? "normal" : "lleno";
+    return { pct, label, level: pct < 30 ? "low" : pct < 70 ? "mid" : "high" };
+  }
+
+  // Dónde va el bus, sin repetir el municipio ni la parada cuando coinciden.
+  function positionText(from, to, atStop) {
+    if (!to) return "";
+    if (atStop || !from || (from.index != null && from.index === to.index))
+      return `Ahora en ${to.name}${to.muni ? ` · ${to.muni}` : ""}`;
+    if (from.muni === to.muni) return `Entre ${from.name} y ${to.name} · ${to.muni}`;
+    return `Entre ${from.name} (${from.muni}) y ${to.name} (${to.muni})`;
+  }
+
   let madridFmt = null;
   function madridParts(ts) {
     if (!madridFmt) madridFmt = new Intl.DateTimeFormat("en-GB", {
@@ -369,7 +397,7 @@
 
   return {
     create, parseBillboard, matchRow, diff, mod, madridMin, madridDate, clockAt, today,
-    getProxy, setProxy, available, check,
+    getProxy, setProxy, available, check, agoText, occInfo, positionText,
     TTL, TOL,
   };
 });

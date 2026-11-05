@@ -192,8 +192,9 @@
     // "Ahora" en vivo: refresca cada minuto y al volver a la pestaña
     setInterval(tick, 30000);
     setInterval(refreshLive, 30000);
+    setInterval(updateAgo, 10000); // solo recalcula «hace X», sin pedir datos
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) { tick(); refreshLive(); }
+      if (!document.hidden) { tick(); refreshLive(); updateAgo(); }
     });
     setCollapsed(true);
     run({ initial: true });
@@ -835,62 +836,128 @@
     const date = last.q.date;
     if (date !== RT.today())
       return `<p class="live-note live-off">El tiempo real solo está disponible para viajes de hoy.</p>`;
-    return `<div class="live" data-live="${l.trip}:${l.i}:${l.j}:${l.shift || 0}" data-date="${date}">
-      <div class="live-head"><span class="live-dot" aria-hidden="true"></span><b>EN VIVO</b><span class="live-ago"></span><button type="button" class="link" data-live-refresh>Actualizar</button></div>
+    return `<div class="live" data-live="${l.trip}:${l.i}:${l.j}:${l.shift || 0}" data-date="${date}" aria-busy="true">
+      <div class="live-head">
+        <span class="live-badge"><span class="live-dot" aria-hidden="true"></span><b class="live-state">EN VIVO</b></span>
+        <span class="live-ago"></span>
+        <button type="button" class="live-refresh" data-live-refresh aria-label="Actualizar el tiempo real" title="Actualizar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </button>
+      </div>
       <div class="live-body"><p class="muted">Consultando el tablero oficial…</p></div></div>`;
   }
 
-  function liveBody(r, l) {
-    if (!r || !r.ok) {
-      const msg = !r ? "No se pudo consultar el tiempo real."
-        : r.reason === "solo-hoy" ? "El tiempo real solo está disponible para viajes de hoy."
-        : r.reason === "sin-datos" ? "Esta parada no publica tiempo real en la web oficial."
-        : r.reason === "sin-proxy" ? "Falta configurar el proxy del tiempo real en Ajustes."
-        : "No se pudo consultar el tablero oficial." + (r.message ? ` (${esc(r.message)})` : "");
-      return `<p class="muted">${msg}</p>`;
-    }
+  // Puntitos de las paradas intermedias del tramo, a escala del índice de parada.
+  function liveDots(l) {
+    const span = Math.max(1, l.j - l.i);
+    if (span < 2 || span > 12) return "";
+    let out = "";
+    for (let p = l.i + 1; p < l.j; p++)
+      out += `<span class="live-stop" style="left:${((p - l.i) / span) * 100}%"></span>`;
+    return out;
+  }
 
-    let main, clock = "";
+  function liveError(r, l) {
+    const from = data.stops[l.from];
+    const msg = !r ? "No se pudo consultar el tiempo real."
+      : r.reason === "solo-hoy" ? "El tiempo real solo está disponible para viajes de hoy."
+      : r.reason === "sin-datos" ? "Esta parada no publica tiempo real en la web oficial."
+      : r.reason === "sin-proxy" ? "Falta configurar el proxy del tiempo real en Ajustes."
+      : "No se pudo consultar el tablero oficial." + (r.message ? ` (${esc(r.message)})` : "");
+    const official = from && from[5]
+      ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit">Abrir en la web oficial</button></form>`
+      : `<a href="https://lurraldebus.eus" target="_blank" rel="noopener">Abrir la web oficial</a>`;
+    const retry = !r || r.reason === "error" ? `<button type="button" data-live-refresh>Reintentar</button>` : "";
+    return `<div class="live-error"><p>${msg}</p><div class="live-error-actions">${retry}
+      ${official}</div></div>`;
+  }
+
+  function liveBody(r, l) {
+    if (!r || !r.ok) return liveError(r, l);
+
+    const sched = clockText(data.trips[l.trip][4][l.i] + (l.shift || 0));
+
+    // Titular: minutos hasta tu parada (o el estado del viaje).
+    let minutes = null, label = "", clock = "", headline = "";
     if (r.notStarted) {
-      main = "Aún no ha salido";
-      if (r.eta != null) main += ` · sale en ${Math.max(0, Math.round(r.eta))} min`;
+      minutes = Math.max(0, Math.round(r.eta || 0));
+      label = "para la salida";
       if (r.etaClock) clock = `a las ${r.etaClock}`;
     } else if (r.finished) {
-      main = "El viaje ya ha terminado";
+      headline = "El viaje ya ha terminado";
     } else if (r.passed) {
-      main = "Ya pasó tu parada";
-      if (r.next) main += ` · ahora va hacia ${r.next.name}`;
+      headline = "Ya pasó tu parada";
+      const ago = r.eta == null ? null : Math.max(1, Math.round(-r.eta));
+      if (ago) label = `hace ${ago} min`;
     } else if (r.eta != null) {
-      const m = Math.max(0, Math.round(r.eta));
-      main = m === 0 ? "Ahora en tu parada" : `Llega a tu parada en ${m} min`;
-      if (r.etaClock) clock = `${m === 0 ? "a las" : "sobre las"} ${r.etaClock}`;
+      minutes = Math.max(0, Math.round(r.eta));
+      label = minutes === 0 ? "ahora en tu parada" : "hasta tu parada";
+      if (r.etaClock) clock = `${minutes === 0 ? "a las" : "sobre las"} ${r.etaClock}`;
     } else {
-      main = "Sin previsión para tu parada";
+      headline = "Sin previsión para tu parada";
     }
+
+    const hero = headline
+      ? `<p class="live-headline">${esc(headline)}</p>${label ? `<p class="live-hero-sub">${esc(label)}</p>` : ""}`
+      : `<div class="live-hero"><span class="live-eta" aria-live="polite"><b>${minutes}</b><small>min</small></span>
+          <span class="live-hero-sub">${esc(label)}${clock ? `<span class="live-clock">${esc(clock)}</span>` : ""}</span></div>`;
 
     const d = r.delay == null ? null : Math.round(r.delay);
-    const delay = d == null ? { t: "Sin retraso conocido", c: "muted" }
-      : d === 0 ? { t: "Puntual", c: "good" }
-      : d > 0 ? { t: `${d} min tarde`, c: "late" } : { t: `${-d} min antes`, c: "good" };
-    const occ = r.occupancy == null ? "Ocupación sin datos" : `Ocupación ${r.occupancy} %`;
+    const delay = d == null ? { t: "Retraso sin datos", c: "muted", i: "·" }
+      : d === 0 ? { t: "Puntual", c: "good", i: "✓" }
+      : d > 0 ? { t: `${d} min tarde`, c: "late", i: "▲" } : { t: `${-d} min antes`, c: "good", i: "▼" };
+    const delayLine = `<p class="live-delay ${delay.c}"><span aria-hidden="true">${delay.i}</span> ${esc(delay.t)}<span class="live-sched"> · horario ${sched}</span></p>`;
 
-    let where = "";
-    if (r.notStarted) where = `Sale desde <b>${esc(eng.stopName(l.from))}</b>`;
-    else if (r.segFrom && r.segTo) {
-      const a = `${r.segFrom.muni} · ${r.segFrom.name}`, b = `${r.segTo.muni} · ${r.segTo.name}`;
-      where = r.atStop ? `Ahora en <b>${esc(b)}</b>` : `Ahora entre <b>${esc(a)}</b> y <b>${esc(b)}</b>`;
-    }
+    const occ = RT.occInfo(r.occupancy);
+    const occLine = occ ? `<div class="live-occ ${occ.level}"><span class="live-occ-name">Ocupación</span>
+      <span class="live-occ-bar"><i style="width:${occ.pct}%"></i></span>
+      <span class="live-occ-val">${occ.pct} % · ${occ.label}</span></div>` : "";
+
+    const where = r.notStarted
+      ? `Sale desde ${eng.stopName(l.from)}`
+      : RT.positionText(r.segFrom, r.atStop && r.segTo && r.segTo.index !== l.i
+          ? { index: l.i, name: data.stops[l.from][0], muni: data.munis[data.stops[l.from][1]] } : r.segTo, r.atStop);
+    const here = r.atStop || (r.segFrom && r.segTo && r.segFrom.index === r.segTo.index);
+    const nextLine = !r.notStarted && !r.finished && !here && r.next && r.nextEta != null && r.nextEta > 0.6
+      ? `<p class="live-next">Próxima parada: <b>${esc(r.next.name)}</b> · ${Math.max(1, Math.round(r.nextEta))} min</p>`
+      : "";
 
     const pct = Math.round(Math.max(0, Math.min(1, r.progress || 0)) * 100);
+    const track = r.finished ? "" : `<div class="live-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Posición aproximada del autobús: ${pct} % del trayecto">
+        <span class="live-track-line"></span>${liveDots(l)}<i class="live-bus" style="left:${pct}%"></i></div>
+      <div class="live-ends"><span>Subes · ${esc(eng.stopName(l.from))}</span><span>Bajas · ${esc(eng.stopName(l.to))}</span></div>`;
+
     const note = r.source === "vivo"
-      ? "Posición aproximada: Lurraldebus no publica GPS; se deduce del tablero oficial de paradas."
-      : "Sin datos del tablero ahora mismo: se muestra la posición y la hora según el horario programado.";
-    return `<p class="live-main"><b>${esc(main)}</b>${clock ? ` <span class="live-clock">${esc(clock)}</span>` : ""}</p>
-      <div class="live-chips"><span class="live-chip ${delay.c}">${esc(delay.t)}</span><span class="live-chip">${esc(occ)}</span>${r.source === "horario" ? `<span class="live-chip muted">Según horario</span>` : ""}</div>
-      ${where ? `<p class="live-where">${where}</p>` : ""}
-      <div class="live-track" role="img" aria-label="Posición aproximada del autobús: ${pct} % del trayecto"><i style="left:${pct}%"></i></div>
-      <div class="live-ends"><span>Tú: ${esc(eng.stopName(l.from))}</span><span>${esc(eng.stopName(l.to))}</span></div>
-      <p class="live-note">${esc(note)}</p>`;
+      ? "Posición estimada, sin GPS oficial: se deduce del tablero de paradas."
+      : "Sin datos del tablero: posición y hora según el horario programado.";
+    return `${hero}${delayLine}${occLine}${where ? `<p class="live-where">${esc(where)}</p>` : ""}${nextLine}${track}
+      <p class="live-note"><span aria-hidden="true">ⓘ</span> ${esc(note)}</p>`;
+  }
+
+  // Cabecera del panel: distingue datos del tablero de una estimación del horario.
+  function setLiveState(el, r) {
+    const state = !r || !r.ok ? "off" : r.source === "vivo" ? "live" : "estimated";
+    el.dataset.state = state;
+    el.classList.toggle("is-est", state === "estimated");
+    const label = el.querySelector(".live-state");
+    if (label) label.textContent = state === "live" ? "EN VIVO" : state === "estimated" ? "SEGÚN HORARIO" : "SIN DATOS";
+    const ago = el.querySelector(".live-ago");
+    if (ago) {
+      if (r && r.ok && r.updatedAt) {
+        ago.dataset.updated = r.updatedAt;
+        ago.textContent = `· ${RT.agoText(r.updatedAt, Date.now())}`;
+      } else {
+        ago.textContent = "";
+        delete ago.dataset.updated;
+      }
+    }
+  }
+
+  // Recalcula «hace X» sin volver a pedir datos.
+  function updateAgo() {
+    if (!window.RT) return;
+    for (const el of document.querySelectorAll(".live-ago[data-updated]"))
+      el.textContent = `· ${RT.agoText(Number(el.dataset.updated), Date.now())}`;
   }
 
   function abortLive() {
@@ -911,21 +978,31 @@
     if (old && old.abort) old.abort();
     if (ctrl) liveJobs.set(el, ctrl);
     el.classList.add("busy");
+    el.setAttribute("aria-busy", "true");
+    const btn = el.querySelector("[data-live-refresh]");
+    if (btn) btn.disabled = true;
     if (force || !el.dataset.loaded) body.innerHTML = `<p class="muted">Consultando el tablero oficial…</p>`;
     rtEng.live(leg, { date, signal: ctrl ? ctrl.signal : undefined })
       .then((r) => {
         if (ctrl && ctrl.signal.aborted) return;
         body.innerHTML = liveBody(r, leg);
         el.dataset.loaded = "1";
-        const ago = el.querySelector(".live-ago");
-        if (ago) ago.textContent = r.updatedAt ? `· ${RT.clockAt(r.updatedAt)}` : "";
+        setLiveState(el, r);
       })
       .catch((e) => {
         if (ctrl && ctrl.signal.aborted) return;
-        body.innerHTML = `<p class="muted">No se pudo consultar el tiempo real${e && e.message ? ` (${esc(e.message)})` : ""}.</p>`;
+        const r = { ok: false, reason: "error", message: e && e.message };
+        body.innerHTML = liveError(r, leg);
+        setLiveState(el, r);
       })
       .finally(() => {
-        if (!ctrl || liveJobs.get(el) === ctrl) { liveJobs.delete(el); el.classList.remove("busy"); }
+        if (!ctrl || liveJobs.get(el) === ctrl) {
+          liveJobs.delete(el);
+          el.classList.remove("busy");
+          el.setAttribute("aria-busy", "false");
+          const b = el.querySelector("[data-live-refresh]");
+          if (b) b.disabled = false;
+        }
       });
   }
 
@@ -971,7 +1048,7 @@
     const live = liveHtml(l);
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
-    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}<ol>${rows.join("")}</ol>${more}${live}${acts}${op}${buy}</div>`;
+    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${live}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;
   }
 
   function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {

@@ -32,7 +32,7 @@ function cors(env, origin) {
     "Access-Control-Allow-Origin": value,
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Accept",
-    "Access-Control-Expose-Headers": "X-RT-Time",
+    "Access-Control-Expose-Headers": "X-RT-Time, X-RT-Now",
     "Vary": "Origin",
   };
 }
@@ -120,6 +120,7 @@ export default {
             "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": "no-store",
             "X-RT-Time": String(value.ts),
+            "X-RT-Now": String(Date.now()),
             ...head,
           },
         });

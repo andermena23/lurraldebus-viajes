@@ -75,7 +75,8 @@ class Proxy(BaseHTTPRequestHandler):
             self.send_text(f"la web oficial no responde: {e}", 502, "text/plain; charset=utf-8")
             return
 
-        self.send_text(extract_table(html), extra={"X-RT-Time": str(int(time.time() * 1000))})
+        now = int(time.time() * 1000)
+        self.send_text(extract_table(html), extra={"X-RT-Time": str(now), "X-RT-Now": str(now)})
 
     def log_message(self, fmt, *args):
         print(f"proxy: {fmt % args}", file=sys.stderr)

@@ -80,6 +80,34 @@ test("cruza la medianoche al casar", () => {
   assert.strictEqual(row.delay, 0);
 });
 
+test("agoText resume la frescura del tablero", () => {
+  const now = Date.UTC(2026, 10, 5, 10, 0);
+  assert.strictEqual(RT.agoText(now - 3000, now), "ahora mismo");
+  assert.strictEqual(RT.agoText(now - 25000, now), "hace 25 s");
+  assert.strictEqual(RT.agoText(now - 125000, now), "hace 2 min");
+  assert.strictEqual(RT.agoText(now - 3600000, now), "hace 1 h");
+  assert.strictEqual(RT.agoText(null, now), "");
+});
+
+test("occInfo etiqueta la ocupación oficial", () => {
+  assert.deepStrictEqual(RT.occInfo(12), { pct: 12, label: "libre", level: "low" });
+  assert.deepStrictEqual(RT.occInfo(50), { pct: 50, label: "normal", level: "mid" });
+  assert.deepStrictEqual(RT.occInfo(88), { pct: 88, label: "lleno", level: "high" });
+  assert.strictEqual(RT.occInfo(null), null);
+  assert.strictEqual(RT.occInfo("-"), null);
+});
+
+test("positionText no repite la parada ni el municipio", () => {
+  const a = { index: 2, name: "Parada A", muni: "Irun" };
+  const b = { index: 3, name: "Parada B", muni: "Irun" };
+  assert.strictEqual(RT.positionText(a, a, true), "Ahora en Parada A · Irun");
+  assert.strictEqual(RT.positionText(a, a, false), "Ahora en Parada A · Irun");
+  assert.strictEqual(RT.positionText(a, b, false), "Entre Parada A y Parada B · Irun");
+  assert.strictEqual(RT.positionText(a, { ...b, muni: "Hondarribia" }, false),
+    "Entre Parada A (Irun) y Parada B (Hondarribia)");
+  assert.strictEqual(RT.positionText(a, null, false), "");
+});
+
 // ---- instancia con fetch simulado -----------------------------------------
 const NOW = Date.UTC(2026, 10, 5, 9, 1); // 10:01 en Madrid
 const DATA = {

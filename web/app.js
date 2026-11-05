@@ -872,6 +872,8 @@
       ${official}</div></div>`;
   }
 
+  const BUS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/></svg>';
+
   function liveBody(r, l) {
     if (!r || !r.ok) return liveError(r, l);
 
@@ -906,7 +908,7 @@
     const delay = d == null ? { t: "Retraso sin datos", c: "muted", i: "·" }
       : d === 0 ? { t: "Puntual", c: "good", i: "✓" }
       : d > 0 ? { t: `${d} min tarde`, c: "late", i: "▲" } : { t: `${-d} min antes`, c: "good", i: "▼" };
-    const delayLine = `<p class="live-delay ${delay.c}"><span aria-hidden="true">${delay.i}</span> ${esc(delay.t)}<span class="live-sched"> · horario ${sched}</span></p>`;
+    const delayLine = `<p class="live-delay"><span class="live-pill ${delay.c}"><span aria-hidden="true">${delay.i}</span> ${esc(delay.t)}</span><span class="live-sched">horario ${sched}</span></p>`;
 
     const occ = RT.occInfo(r.occupancy);
     const occLine = occ ? `<div class="live-occ ${occ.level}"><span class="live-occ-name">Ocupación</span>
@@ -919,18 +921,22 @@
           ? { index: l.i, name: data.stops[l.from][0], muni: data.munis[data.stops[l.from][1]] } : r.segTo, r.atStop);
     const here = r.atStop || (r.segFrom && r.segTo && r.segFrom.index === r.segTo.index);
     const nextLine = !r.notStarted && !r.finished && !here && r.next && r.nextEta != null && r.nextEta > 0.6
-      ? `<p class="live-next">Próxima parada: <b>${esc(r.next.name)}</b> · ${Math.max(1, Math.round(r.nextEta))} min</p>`
+      ? `<p class="live-next">Siguiente parada: <b>${esc(r.next.name)}</b> · ${Math.max(1, Math.round(r.nextEta))} min</p>`
       : "";
 
     const pct = Math.round(Math.max(0, Math.min(1, r.progress || 0)) * 100);
     const track = r.finished ? "" : `<div class="live-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Posición aproximada del autobús: ${pct} % del trayecto">
-        <span class="live-track-line"></span>${liveDots(l)}<i class="live-bus" style="left:${pct}%"></i></div>
-      <div class="live-ends"><span>Subes · ${esc(eng.stopName(l.from))}</span><span>Bajas · ${esc(eng.stopName(l.to))}</span></div>`;
+        <span class="live-track-line"></span><span class="live-track-fill" style="width:${pct}%"></span>${liveDots(l)}
+        <span class="live-end live-end--a"></span><span class="live-end live-end--b"></span>
+        <i class="live-bus" style="left:${pct}%">${BUS_SVG}</i></div>
+      <div class="live-ends"><span><small>Subes</small>${esc(eng.stopName(l.from))}</span><span><small>Bajas</small>${esc(eng.stopName(l.to))}</span></div>`;
 
     const note = r.source === "vivo"
       ? "Posición estimada, sin GPS oficial: se deduce del tablero de paradas."
       : "Sin datos del tablero: posición y hora según el horario programado.";
-    return `${hero}${delayLine}${occLine}${where ? `<p class="live-where">${esc(where)}</p>` : ""}${nextLine}${track}
+    const whereBlock = where || nextLine
+      ? `<div class="live-where">${BUS_SVG}<div>${where ? `<p class="live-pos">${esc(where)}</p>` : ""}${nextLine}</div></div>` : "";
+    return `${hero}${delayLine}${occLine}${whereBlock}${track}
       <p class="live-note"><span aria-hidden="true">ⓘ</span> ${esc(note)}</p>`;
   }
 
@@ -939,6 +945,7 @@
     const state = !r || !r.ok ? "off" : r.source === "vivo" ? "live" : "estimated";
     el.dataset.state = state;
     el.classList.toggle("is-est", state === "estimated");
+    markStops(el, r);
     const label = el.querySelector(".live-state");
     if (label) label.textContent = state === "live" ? "EN VIVO" : state === "estimated" ? "SEGÚN HORARIO" : "SIN DATOS";
     const ago = el.querySelector(".live-ago");
@@ -950,6 +957,20 @@
         ago.textContent = "";
         delete ago.dataset.updated;
       }
+    }
+  }
+
+  // Sobre la lista de paradas: atenúa las que el bus ya dejó atrás y marca por dónde va.
+  function markStops(el, r) {
+    const leg = el.closest(".leg");
+    if (!leg) return;
+    const ok = r && r.ok && !r.notStarted && r.busIndex != null;
+    const bus = ok ? (r.finished ? Infinity : r.busIndex) : -1;
+    const cur = ok && !r.finished ? Math.round(bus) : -1;
+    for (const li of leg.querySelectorAll("ol:not(.alt-list) > li[data-p]")) {
+      const p = Number(li.dataset.p);
+      li.classList.toggle("is-past", ok && p < bus - 0.2 && p !== cur);
+      li.classList.toggle("is-bus", p === cur);
     }
   }
 
@@ -1023,7 +1044,8 @@
       // solo informativo en paradas intermedias: en el origen y el destino de tu tramo siempre se puede subir/bajar
       const f = t[6].charCodeAt(p) - 48;
       const tag = !end && f ? `<em class="rtag" title="${["", "En esta parada solo se puede bajar", "En esta parada solo se puede subir", "En esta parada no suben ni bajan viajeros"][f]}">${["", "solo bajada", "solo subida", "sin viajeros"][f]}</em>` : "";
-      rows.push(`<li class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}${tag}</span></li>`);
+      const role = p === l.i ? `<em class="role role--on">Subes</em>` : p === l.j ? `<em class="role role--off">Bajas</em>` : "";
+      rows.push(`<li data-p="${p}" class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}${role}${tag}</span></li>`);
     }
     // El buscador baja en la primera parada del municipio destino; el mismo bus puede seguir parando dentro de él.
     let more = "";

@@ -208,14 +208,33 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .detail { padding: 4px 16px 14px; border-top: 1px solid var(--line); font-size: .88rem; }
 .detail h3 { margin: 12px 0 6px; font-size: .88rem; display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; }
 .detail h3 span { min-width: 0; overflow-wrap: anywhere; }
-.detail ol { margin: 0; padding: 0 0 0 4px; list-style: none; border-left: 2px solid var(--line); margin-left: 4px; }
-.detail li { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr); gap: 8px; padding: 2px 0 2px 10px; position: relative; }
+/* Lista de paradas: eje vertical a x = 7px; el punto y el trazo comparten ese centro. */
+.detail ol { --pad: 5px; --lh: 1.4rem; --axis: 7px; margin: 4px 0 0; padding: 0; list-style: none; }
+.detail li { display: grid; grid-template-columns: 3.1rem minmax(0, 1fr); gap: 8px; position: relative;
+  padding: var(--pad) 0 var(--pad) 24px; line-height: var(--lh); }
 .detail li span { overflow-wrap: anywhere; }
-.detail li::before { content: ""; position: absolute; left: -6px; top: .75em; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.detail li::before, .detail li::after { content: ""; position: absolute; }
+/* trazo entre paradas: de centro de punto a centro de punto */
+.detail li::after { left: calc(var(--axis) - 1px); width: 2px; top: 0; bottom: 0; background: var(--line); }
+.detail li:first-child::after { top: calc(var(--pad) + var(--lh) / 2); }
+.detail li:last-child::after { bottom: calc(100% - var(--pad) - var(--lh) / 2); }
+.detail li:only-child::after { display: none; }
+.detail li::before { z-index: 1; left: calc(var(--axis) - 4px); top: calc(var(--pad) + var(--lh) / 2 - 4px);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--card); border: 2px solid var(--muted); box-sizing: border-box; }
 .detail li.end-stop { font-weight: 650; }
-.detail li.end-stop::before { background: var(--accent); }
+.detail li.end-stop::before { left: calc(var(--axis) - 6px); top: calc(var(--pad) + var(--lh) / 2 - 6px);
+  width: 12px; height: 12px; background: var(--accent); border: 3px solid var(--card);
+  box-shadow: 0 0 0 1.5px var(--accent); }
 .detail li time { font-variant-numeric: tabular-nums; color: var(--muted); }
 .detail li.end-stop time { color: var(--ink); }
+.role { margin-left: 8px; padding: 0 7px; border-radius: 999px; font-size: .66rem; font-style: normal; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+.role--off { background: var(--chip); color: var(--ink); }
+/* con tiempo real: lo que el bus ya dejó atrás se atenúa y se marca dónde va */
+.detail li.is-past { opacity: .5; }
+.detail li.is-past::after { background: var(--accent); opacity: .6; }
+.detail li.is-bus::before { left: calc(var(--axis) - 7px); top: calc(var(--pad) + var(--lh) / 2 - 7px); width: 14px; height: 14px;
+  background: var(--good); border: 3px solid var(--card); box-shadow: 0 0 0 1.5px var(--good); animation: livepulse 2s ease-in-out infinite; }
 .transfer-note { margin: 12px 0 0; padding: 6px 10px; background: var(--warn-bg); color: var(--warn); border-radius: 8px; }
 
 /* entrada suave (se desactiva en refrescos automáticos y con "reducir movimiento") */
@@ -329,7 +348,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .hour { top: 78px; margin: 22px 0 10px; padding: 8px 2px; }
   .section { margin: 32px 0 12px; }
   .detail { padding: 6px 14px 18px; }
-  .detail li { padding: 4px 0 4px 10px; }
+  .detail ol { --pad: 6px; }
   footer { padding-top: 12px; }
 
   /* comparar */
@@ -379,7 +398,8 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .rtag { margin-left: 8px; padding: 0 7px; border-radius: 999px; background: var(--chip); color: var(--muted); font-size: .68rem; font-style: normal; font-weight: 600; white-space: nowrap; }
 .alt-note { margin: 10px 0 4px; font-size: .82rem; color: var(--muted); }
 .alt-list { opacity: .8; }
-.alt-list li::before { background: transparent !important; border: 2px solid var(--line); width: 6px !important; height: 6px !important; }
+.alt-list li::before { border-color: var(--line); background: var(--card); }
+.alt-list li::after { background: repeating-linear-gradient(var(--line) 0 3px, transparent 3px 6px); }
 .detail .leg + .transfer-note, .detail .transfer-note + .leg { margin-top: 12px; }
 .fine { margin: 14px 0 0; font-size: .75rem; }
 
@@ -417,21 +437,22 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes livespin { to { transform: rotate(360deg); } }
 
-.live-hero { display: flex; align-items: baseline; gap: 12px; margin: 2px 0 6px; }
+.live-hero { display: flex; align-items: center; gap: 14px; margin: 4px 0 2px; }
 .live-eta { display: inline-flex; align-items: baseline; gap: 4px; color: var(--accent); }
-.live-eta b { font-size: 2.15rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.live-eta b { font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .live-eta small { font-size: .82rem; font-weight: 700; }
 .live-hero-sub { display: flex; flex-direction: column; gap: 1px; font-size: .86rem; color: var(--ink); min-width: 0; }
 .live-clock { font-size: .78rem; color: var(--muted); white-space: nowrap; }
 .live-headline { margin: 2px 0 2px; font-size: 1.15rem; font-weight: 700; }
 .live-headline + .live-hero-sub { margin: 0 0 6px; }
 
-.live-delay { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 6px 0;
-  font-size: .84rem; font-weight: 600; }
-.live-delay.good { color: var(--good); }
-.live-delay.late { color: var(--warn); }
-.live-delay.muted { color: var(--muted); font-weight: 500; }
-.live-sched { color: var(--muted); font-weight: 400; }
+.live-delay { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 8px 0 4px; font-size: .84rem; }
+.live-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 999px;
+  background: var(--chip); color: var(--ink); font-weight: 700; }
+.live-pill.good { background: var(--good-bg); color: var(--good); }
+.live-pill.late { background: var(--warn-bg); color: var(--warn); }
+.live-pill.muted { color: var(--muted); font-weight: 500; }
+.live-sched { color: var(--muted); }
 
 .live-occ { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; font-size: .78rem; color: var(--muted); }
 .live-occ-name { flex: none; }
@@ -441,20 +462,30 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live-occ.high .live-occ-bar i { background: var(--warn); }
 .live-occ-val { flex: none; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 
-.live-where { margin: 9px 0 0; font-size: .88rem; overflow-wrap: anywhere; }
+.live-where { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.live-where > svg { flex: none; width: 18px; height: 18px; margin-top: 1px; fill: var(--accent); }
+.live-where > div { min-width: 0; }
+.live-pos { margin: 0; font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
 .live-next { margin: 3px 0 0; font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
 
-.live-track { position: relative; height: 18px; margin: 14px 10px 2px; }
-.live-track-line { position: absolute; left: 0; right: 0; top: 50%; height: 6px; transform: translateY(-50%);
-  border-radius: 3px; background: var(--line); }
-.live-stop { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--muted); opacity: .55; transform: translate(-50%, -50%); }
-.live-bus { position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%;
-  background: var(--accent); border: 3px solid var(--card); transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
-.live-ends { display: flex; justify-content: space-between; gap: 12px; margin-top: 2px;
-  font-size: .72rem; color: var(--muted); }
-.live-ends span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 49%; }
+/* trayecto: extremos fijos, tramo recorrido relleno y autobús encima, todo sobre el mismo eje */
+.live-track { position: relative; height: 26px; margin: 14px 8px 4px; }
+.live-track-line, .live-track-fill { position: absolute; left: 0; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; }
+.live-track-line { right: 0; background: var(--line); }
+.live-track-fill { background: var(--accent); opacity: .85; }
+.live-stop { position: absolute; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+  background: var(--card); box-shadow: 0 0 0 1.5px var(--muted); opacity: .8; }
+.live-end { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: var(--card); border: 3px solid var(--accent); box-sizing: border-box; }
+.live-end--a { left: 0; }
+.live-end--b { left: 100%; background: var(--accent); }
+.live-bus { position: absolute; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--card); box-sizing: border-box; display: grid; place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3); transition: left .6s ease; }
+.live-bus svg { width: 12px; height: 12px; fill: var(--accent-ink); }
+.live-ends { display: flex; justify-content: space-between; gap: 14px; margin-top: 6px; font-size: .76rem; color: var(--ink); }
+.live-ends span { min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-ends small { display: block; font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .live-ends span:last-child { text-align: right; }
 .live-note { margin: 10px 0 0; font-size: .72rem; color: var(--muted); }
 .live-off { margin-top: 10px; }
@@ -465,10 +496,11 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 
 @media (max-width: 700px) {
   .live { padding: 12px; }
-  .live-eta b { font-size: 1.95rem; }
+  .live-eta b { font-size: 2.3rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .live-dot, .live.busy .live-refresh svg { animation: none; }
+  .live-dot, .live.busy .live-refresh svg, .detail li.is-bus::before { animation: none; }
+  .live-bus { transition: none; }
 }
 
 /* avisos oficiales (plegables) y notas bajo los resultados */

@@ -847,16 +847,6 @@
       <div class="live-body"><p class="muted">Consultando el tablero oficial…</p></div></div>`;
   }
 
-  // Puntitos de las paradas intermedias del tramo, a escala del índice de parada.
-  function liveDots(l) {
-    const span = Math.max(1, l.j - l.i);
-    if (span < 2 || span > 12) return "";
-    let out = "";
-    for (let p = l.i + 1; p < l.j; p++)
-      out += `<span class="live-stop" style="left:${((p - l.i) / span) * 100}%"></span>`;
-    return out;
-  }
-
   function liveError(r, l) {
     const from = data.stops[l.from];
     const msg = !r ? "No se pudo consultar el tiempo real."
@@ -871,8 +861,6 @@
     return `<div class="live-error"><p>${msg}</p><div class="live-error-actions">${retry}
       ${official}</div></div>`;
   }
-
-  const BUS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/></svg>';
 
   function liveBody(r, l) {
     if (!r || !r.ok) return liveError(r, l);
@@ -911,32 +899,17 @@
     const delayLine = `<p class="live-delay"><span class="live-pill ${delay.c}"><span aria-hidden="true">${delay.i}</span> ${esc(delay.t)}</span><span class="live-sched">horario ${sched}</span></p>`;
 
     const occ = RT.occInfo(r.occupancy);
-    const occLine = occ ? `<div class="live-occ ${occ.level}"><span class="live-occ-name">Ocupación</span>
-      <span class="live-occ-bar"><i style="width:${occ.pct}%"></i></span>
-      <span class="live-occ-val">${occ.pct} % · ${occ.label}</span></div>` : "";
+    const occLine = occ ? `<p class="live-occ ${occ.level}"><span class="live-occ-dot" aria-hidden="true"></span>Ocupación <b>${occ.label}</b> · ${occ.pct} %</p>` : "";
 
     const where = r.notStarted
       ? `Sale desde ${eng.stopName(l.from)}`
       : RT.positionText(r.segFrom, r.atStop && r.segTo && r.segTo.index !== l.i
           ? { index: l.i, name: data.stops[l.from][0], muni: data.munis[data.stops[l.from][1]] } : r.segTo, r.atStop);
-    const here = r.atStop || (r.segFrom && r.segTo && r.segFrom.index === r.segTo.index);
-    const nextLine = !r.notStarted && !r.finished && !here && r.next && r.nextEta != null && r.nextEta > 0.6
-      ? `<p class="live-next">Siguiente parada: <b>${esc(r.next.name)}</b> · ${Math.max(1, Math.round(r.nextEta))} min</p>`
-      : "";
-
-    const pct = Math.round(Math.max(0, Math.min(1, r.progress || 0)) * 100);
-    const track = r.finished ? "" : `<div class="live-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Posición aproximada del autobús: ${pct} % del trayecto">
-        <span class="live-track-line"></span><span class="live-track-fill" style="width:${pct}%"></span>${liveDots(l)}
-        <span class="live-end live-end--a"></span><span class="live-end live-end--b"></span>
-        <i class="live-bus" style="left:${pct}%">${BUS_SVG}</i></div>
-      <div class="live-ends"><span><small>Subes</small>${esc(eng.stopName(l.from))}</span><span><small>Bajas</small>${esc(eng.stopName(l.to))}</span></div>`;
 
     const note = r.source === "vivo"
       ? "Posición estimada, sin GPS oficial: se deduce del tablero de paradas."
       : "Sin datos del tablero: posición y hora según el horario programado.";
-    const whereBlock = where || nextLine
-      ? `<div class="live-where">${BUS_SVG}<div>${where ? `<p class="live-pos">${esc(where)}</p>` : ""}${nextLine}</div></div>` : "";
-    return `${hero}${delayLine}${occLine}${whereBlock}${track}
+    return `${hero}${delayLine}${occLine}${where ? `<p class="live-where">${esc(where)}</p>` : ""}
       <p class="live-note"><span aria-hidden="true">ⓘ</span> ${esc(note)}</p>`;
   }
 
@@ -1066,8 +1039,8 @@
     // Tiempo real: formulario normal hacia lurraldebus.eus (sin proxy); solo en paradas que esa web conoce.
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";
-    const acts = `<div class="leg-actions">${rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
     const live = liveHtml(l);
+    const acts = `<div class="leg-actions">${live.includes("data-live=") ? "" : rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
     return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${live}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;

@@ -31,8 +31,9 @@
   const dayFmt = new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" });
   const dayLabel = (s) => { const t = dayFmt.format(new Date(s + "T12:00:00")); return t[0].toUpperCase() + t.slice(1); };
 
-  let eng, data, fares = null, last = null;
+  let eng, data, fares = null, last = null, rtEng = null;
   const state = { tab: "trips", sort: "dep", line: null, mode: "trip", allTrans: false, lineKey: "", dir: 0, dirTrip: null };
+  const liveJobs = new Map(); // panel en vivo -> AbortController
   const out = $("out");
   let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
   let live = false; // true mientras "Desde las" sigue a la hora actual
@@ -74,6 +75,7 @@
   function init(d) {
     data = d;
     eng = LB.create(d);
+    rtEng = window.RT ? RT.create(d) : null;
     const order = d.munis.map((_, i) => i).sort((a, b) => d.munis[a].localeCompare(d.munis[b], "es"));
     const opts = order.map((i) => `<option value="${i}">${esc(d.munis[i])}</option>`).join("");
     $("o").innerHTML = opts;
@@ -150,12 +152,49 @@
       $("mugi-clear").hidden = !$("mugi").value;
     });
     $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
+    // proxy del tiempo real: URL del Worker (o del proxy local)
+    if (window.RT) {
+      $("rtproxy").value = RT.getProxy();
+      $("rt-clear").hidden = !RT.getProxy();
+      const showProxy = () => {
+        $("rtproxy").value = RT.getProxy();
+        $("rt-clear").hidden = !RT.getProxy();
+        $("rt-status").textContent = "";
+      };
+      $("rtproxy").addEventListener("change", () => { RT.setProxy($("rtproxy").value); showProxy(); });
+      $("rt-clear").addEventListener("click", () => { RT.setProxy(""); showProxy(); });
+      $("rt-test").addEventListener("click", async () => {
+        RT.setProxy($("rtproxy").value);
+        showProxy();
+        $("rt-status").textContent = "Probando…";
+        const res = await RT.check();
+        $("rt-status").textContent = res.ok ? "Funciona" : `No responde${res.error ? ` (${res.error})` : ""}`;
+      });
+    }
     $("recent").addEventListener("click", onRecent);
     $("saved").addEventListener("click", onSaved);
     out.addEventListener("click", onClick);
+    // detalles del viaje: al abrir se consulta el tablero; al cerrar se cancela
+    out.addEventListener("toggle", (e) => {
+      const d = e.target;
+      if (!d.classList || !d.classList.contains("trip")) return;
+      if (d.open) {
+        for (const el of d.querySelectorAll(".live[data-live]")) startLive(el);
+      } else {
+        for (const el of d.querySelectorAll(".live[data-live]")) {
+          const c = liveJobs.get(el);
+          if (c && c.abort) c.abort();
+          liveJobs.delete(el);
+          el.classList.remove("busy");
+        }
+      }
+    }, true);
     // "Ahora" en vivo: refresca cada minuto y al volver a la pestaña
     setInterval(tick, 30000);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+    setInterval(refreshLive, 30000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) { tick(); refreshLive(); }
+    });
     setCollapsed(true);
     run({ initial: true });
   }
@@ -446,6 +485,11 @@
     if ((el = t.closest("[data-dir]"))) { state.dir = Number(el.dataset.dir); return render(); }
     if (t.closest("[data-alltrans]")) { state.allTrans = !state.allTrans; return run({ refresh: true }); }
     if (t.closest("[data-holiday]")) { $("holiday").checked = true; return run({ refresh: true }); }
+    if ((el = t.closest("[data-live-refresh]"))) {
+      const box = el.closest(".live[data-live]");
+      if (box) startLive(box, true);
+      return;
+    }
     if ((el = t.closest("[data-linefor]"))) return showLine(Number(el.dataset.linefor), Number(el.dataset.trip));
     if ((el = t.closest("[data-map]"))) return toggleMap(el);
     if (t.closest("[data-allday]")) return $("allday").click();
@@ -613,6 +657,7 @@
   }
 
   function render(anim = false) {
+    abortLive();
     if (state.mode === "line") {
       if (!lastLine) return;
       out.classList.toggle("anim", anim);
@@ -781,6 +826,115 @@
 
   const safeUrl = (u) => (/^https?:\/\//i.test(u) ? u : "");
 
+  // Panel «EN VIVO» de un tramo. Solo se pinta si hay proxy configurado y la
+  // parada de subida tiene tablero oficial; los viajes de otros días no lo llevan.
+  function liveHtml(l) {
+    if (!rtEng || !window.RT || !RT.available()) return "";
+    const from = data.stops[l.from];
+    if (!from || !from[5]) return "";
+    const date = last.q.date;
+    if (date !== RT.today())
+      return `<p class="live-note live-off">El tiempo real solo está disponible para viajes de hoy.</p>`;
+    return `<div class="live" data-live="${l.trip}:${l.i}:${l.j}:${l.shift || 0}" data-date="${date}">
+      <div class="live-head"><span class="live-dot" aria-hidden="true"></span><b>EN VIVO</b><span class="live-ago"></span><button type="button" class="link" data-live-refresh>Actualizar</button></div>
+      <div class="live-body"><p class="muted">Consultando el tablero oficial…</p></div></div>`;
+  }
+
+  function liveBody(r, l) {
+    if (!r || !r.ok) {
+      const msg = !r ? "No se pudo consultar el tiempo real."
+        : r.reason === "solo-hoy" ? "El tiempo real solo está disponible para viajes de hoy."
+        : r.reason === "sin-datos" ? "Esta parada no publica tiempo real en la web oficial."
+        : r.reason === "sin-proxy" ? "Falta configurar el proxy del tiempo real en Ajustes."
+        : "No se pudo consultar el tablero oficial." + (r.message ? ` (${esc(r.message)})` : "");
+      return `<p class="muted">${msg}</p>`;
+    }
+
+    let main, clock = "";
+    if (r.notStarted) {
+      main = "Aún no ha salido";
+      if (r.eta != null) main += ` · sale en ${Math.max(0, Math.round(r.eta))} min`;
+      if (r.etaClock) clock = `a las ${r.etaClock}`;
+    } else if (r.finished) {
+      main = "El viaje ya ha terminado";
+    } else if (r.passed) {
+      main = "Ya pasó tu parada";
+      if (r.next) main += ` · ahora va hacia ${r.next.name}`;
+    } else if (r.eta != null) {
+      const m = Math.max(0, Math.round(r.eta));
+      main = m === 0 ? "Ahora en tu parada" : `Llega a tu parada en ${m} min`;
+      if (r.etaClock) clock = `${m === 0 ? "a las" : "sobre las"} ${r.etaClock}`;
+    } else {
+      main = "Sin previsión para tu parada";
+    }
+
+    const d = r.delay == null ? null : Math.round(r.delay);
+    const delay = d == null ? { t: "Sin retraso conocido", c: "muted" }
+      : d === 0 ? { t: "Puntual", c: "good" }
+      : d > 0 ? { t: `${d} min tarde`, c: "late" } : { t: `${-d} min antes`, c: "good" };
+    const occ = r.occupancy == null ? "Ocupación sin datos" : `Ocupación ${r.occupancy} %`;
+
+    let where = "";
+    if (r.notStarted) where = `Sale desde <b>${esc(eng.stopName(l.from))}</b>`;
+    else if (r.segFrom && r.segTo) {
+      const a = `${r.segFrom.muni} · ${r.segFrom.name}`, b = `${r.segTo.muni} · ${r.segTo.name}`;
+      where = r.atStop ? `Ahora en <b>${esc(b)}</b>` : `Ahora entre <b>${esc(a)}</b> y <b>${esc(b)}</b>`;
+    }
+
+    const pct = Math.round(Math.max(0, Math.min(1, r.progress || 0)) * 100);
+    const note = r.source === "vivo"
+      ? "Posición aproximada: Lurraldebus no publica GPS; se deduce del tablero oficial de paradas."
+      : "Sin datos del tablero ahora mismo: se muestra la posición y la hora según el horario programado.";
+    return `<p class="live-main"><b>${esc(main)}</b>${clock ? ` <span class="live-clock">${esc(clock)}</span>` : ""}</p>
+      <div class="live-chips"><span class="live-chip ${delay.c}">${esc(delay.t)}</span><span class="live-chip">${esc(occ)}</span>${r.source === "horario" ? `<span class="live-chip muted">Según horario</span>` : ""}</div>
+      ${where ? `<p class="live-where">${where}</p>` : ""}
+      <div class="live-track" role="img" aria-label="Posición aproximada del autobús: ${pct} % del trayecto"><i style="left:${pct}%"></i></div>
+      <div class="live-ends"><span>Tú: ${esc(eng.stopName(l.from))}</span><span>${esc(eng.stopName(l.to))}</span></div>
+      <p class="live-note">${esc(note)}</p>`;
+  }
+
+  function abortLive() {
+    for (const c of liveJobs.values()) if (c && c.abort) c.abort();
+    liveJobs.clear();
+  }
+
+  function startLive(el, force) {
+    if (!rtEng) return;
+    const [trip, i, j, shift] = (el.dataset.live || "").split(":").map(Number);
+    const date = el.dataset.date;
+    const body = el.querySelector(".live-body");
+    if (!body) return;
+    const t = data.trips[trip];
+    const leg = { trip, i, j, shift, from: t[3][i], to: t[3][j] };
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const old = liveJobs.get(el);
+    if (old && old.abort) old.abort();
+    if (ctrl) liveJobs.set(el, ctrl);
+    el.classList.add("busy");
+    if (force || !el.dataset.loaded) body.innerHTML = `<p class="muted">Consultando el tablero oficial…</p>`;
+    rtEng.live(leg, { date, signal: ctrl ? ctrl.signal : undefined })
+      .then((r) => {
+        if (ctrl && ctrl.signal.aborted) return;
+        body.innerHTML = liveBody(r, leg);
+        el.dataset.loaded = "1";
+        const ago = el.querySelector(".live-ago");
+        if (ago) ago.textContent = r.updatedAt ? `· ${RT.clockAt(r.updatedAt)}` : "";
+      })
+      .catch((e) => {
+        if (ctrl && ctrl.signal.aborted) return;
+        body.innerHTML = `<p class="muted">No se pudo consultar el tiempo real${e && e.message ? ` (${esc(e.message)})` : ""}.</p>`;
+      })
+      .finally(() => {
+        if (!ctrl || liveJobs.get(el) === ctrl) { liveJobs.delete(el); el.classList.remove("busy"); }
+      });
+  }
+
+  // Refresca solo los paneles visibles: viaje desplegado y pestaña activa.
+  function refreshLive() {
+    if (!rtEng || document.hidden) return;
+    for (const el of out.querySelectorAll("details.trip[open] .live[data-live]")) startLive(el);
+  }
+
   function legHtml(r, l, k) {
     const t = data.trips[l.trip];
     const li = eng.line(l.route);
@@ -814,9 +968,10 @@
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";
     const acts = `<div class="leg-actions">${rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
+    const live = liveHtml(l);
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
-    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;
+    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}<ol>${rows.join("")}</ol>${more}${live}${acts}${op}${buy}</div>`;
   }
 
   function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {

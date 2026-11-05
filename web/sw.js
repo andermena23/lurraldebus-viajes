@@ -1,8 +1,8 @@
 /* Service worker: la app (HTML/JS/CSS) va "red primero" para ver siempre la última versión y cae a caché sin
  * conexión; los datos (network.json, ~4 MB) van "caché y actualizar" para abrir al instante y funcionar offline. */
-const SHELL = "lb-shell-v3";
+const SHELL = "lb-shell-v4";
 const DATA = "lb-data-v1";
-const FILES = ["./", "index.html", "style.css", "app.js", "search.js", "pesa.js", "holidays.js", "fares.js", "theme.js", "manifest.webmanifest",
+const FILES = ["./", "index.html", "style.css", "app.js", "search.js", "realtime.js", "pesa.js", "holidays.js", "fares.js", "theme.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

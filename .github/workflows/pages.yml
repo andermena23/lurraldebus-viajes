@@ -34,6 +34,7 @@ jobs:
         run: |
           node test/data.test.js
           node test/search.test.js
+          node test/realtime.test.js
           node test/pesa.test.js
           node test/holidays.test.js
           node test/fares.test.js
@@ -49,6 +50,13 @@ jobs:
       # Versionar los archivos con el commit para que los navegadores no sirvan CSS/JS viejos desde caché
       - name: Versionar archivos estáticos
         run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" web/index.html
+
+      # URL del Worker de tiempo real (Settings → Secrets and variables → Actions → Variables)
+      - name: Configurar proxy de tiempo real
+        if: vars.RT_PROXY_URL != ''
+        env:
+          RT_PROXY_URL: ${{ vars.RT_PROXY_URL }}
+        run: sed -i "s|__RT_PROXY__|$RT_PROXY_URL|g" web/realtime.js
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

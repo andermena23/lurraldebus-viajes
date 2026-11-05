@@ -54,7 +54,7 @@ footer { max-width: 980px; margin: 0 auto; padding: 0 16px 32px; color: var(--mu
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 22px 20px; box-shadow: 0 4px 14px rgba(0, 60, 70, .14); margin-top: -20px; position: relative; }
 label, .lbl { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); min-width: 0; }
 .lbl { display: block; margin-bottom: 4px; }
-select, input[type=date], input[type=time], .settings input[type=text] {
+select, input[type=date], input[type=time], .settings input[type=text], .settings input[type=url] {
   font: inherit; font-size: 1rem; color: var(--ink); background: var(--bg);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; min-height: 44px;
 }
@@ -88,7 +88,10 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px s
 .settings h3 { margin: 0 0 6px; font-size: 1rem; }
 .settings p { margin: 0 0 14px; }
 .settings .icon { min-height: 36px; width: 36px; padding: 0; border-radius: 999px; }
-.settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; align-items: center; }
+.settings section + section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.settings .settings-footer { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.settings #rt-status { margin-right: auto; font-size: .8rem; }
 .settings .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
 button.link { all: unset; cursor: pointer; color: var(--accent); text-decoration: underline; font-weight: 600; }
 button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -389,6 +392,36 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .tmap[hidden] { display: none; }
 .map-note { margin: 6px 0 0; }
 .opinfo { margin: 10px 0 0; font-size: .8rem; }
+
+/* panel en vivo dentro del viaje desplegado */
+.live { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: color-mix(in srgb, var(--chip) 30%, var(--card)); }
+.live.busy { opacity: .72; }
+.live-head { display: flex; align-items: center; gap: 8px; font-size: .74rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); }
+.live-head b { color: var(--accent); }
+.live-head .live-ago { margin-left: auto; text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.live-head button.link { text-transform: none; letter-spacing: 0; font-size: .8rem; margin-left: 4px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; animation: livepulse 2s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.live-main { margin: 8px 0 4px; font-size: .95rem; overflow-wrap: anywhere; }
+.live-main b { font-size: 1.2rem; color: var(--ink); }
+.live-clock { color: var(--muted); font-size: .82rem; margin-left: 6px; white-space: nowrap; }
+.live-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.live-chip { padding: 2px 9px; border-radius: 999px; background: var(--chip); font-size: .74rem; font-weight: 600; }
+.live-chip.warn, .live-chip.late { background: var(--warn-bg); color: var(--warn); }
+.live-chip.good { background: var(--good-bg); color: var(--good); }
+.live-chip.muted { color: var(--muted); font-weight: 500; }
+.live-where { font-size: .84rem; margin: 6px 0; overflow-wrap: anywhere; }
+.live-track { position: relative; height: 6px; border-radius: 3px; background: var(--line); margin: 14px 6px 8px; }
+.live-track i { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent);
+  transform: translate(-50%, -50%); box-shadow: 0 0 0 3px var(--card); }
+.live-ends { display: flex; justify-content: space-between; gap: 10px; font-size: .72rem; color: var(--muted); }
+.live-ends span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 48%; }
+.live-ends span:last-child { text-align: right; }
+.live-note { margin: 8px 0 0; font-size: .72rem; color: var(--muted); }
+.live-off { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 
 /* avisos oficiales (plegables) y notas bajo los resultados */
 details.notice > summary { cursor: pointer; }

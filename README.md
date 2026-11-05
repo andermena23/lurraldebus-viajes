@@ -24,7 +24,9 @@ servicios del día**, con salida, llegada y duración claras, y deja compararlos
 - **Líneas a demanda** (código acabado en E: TO22E, GO21E...): marcadas como «A demanda» con el teléfono y la antelación
   necesarios, y excluidas de «Próximo»; se pueden ocultar desde Más opciones.
 - **Tarifa orientativa** entre los dos municipios (saltos de zona, precio con MUGI y billete ocasional).
-- **Tiempo real** en la web oficial (formulario hacia lurraldebus.eus en la parada de subida), **mapa** del tramo
+- **Tiempo real** al desplegar un viaje de hoy: minutos hasta tu parada, retraso, ocupación y posición aproximada
+  («ahora entre X e Y», con barra de progreso), consultando el tablero oficial a través de un proxy propio. Se mantiene
+  el botón «Tiempo real» que abre lurraldebus.eus en esa parada, además del **mapa** del tramo
   (OpenStreetMap, se carga solo al pedirlo), teléfono y web del operador, y **avisos oficiales** (paradas suprimidas...)
   en los viajes de las líneas afectadas.
 - Día anterior/siguiente, Hoy/Mañana, "desde las" y "Ahora" en vivo (se actualiza cada minuto).
@@ -62,11 +64,43 @@ vez al año, así que no se actualizan a diario (ejecútalo a mano cuando cambie
 
 No hay backend: el navegador carga ese JSON y `web/search.js` hace la búsqueda ahí mismo.
 
+## Tiempo real
+
+El tablero oficial (`https://lurraldebus.eus/real/result/{municipio}/{parada}`) devuelve la línea, el destino, la
+ocupación y los minutos que faltan para cada bus. No envía cabeceras CORS, así que el navegador no puede leerlo
+directamente desde GitHub Pages. Para eso está el **Cloudflare Worker** de `worker/`:
+
+- `GET /health` comprueba que está desplegado.
+- `GET /board?muni=<idMunicipio>&stop=<idParada>` reenvía la consulta y devuelve solo la tabla de llegadas.
+- Cachea 15 s en memoria para no golpear al servidor oficial si varios clientes miran la misma parada.
+- Las cabeceras `X-RT-Time` / `X-RT-Now` indican a qué instante corresponden los minutos, sin depender del reloj del móvil.
+
+`web/realtime.js` parsea la tabla, casa cada fila con el viaje del horario (línea + hora prevista + sentido) y consulta
+unas cuantas paradas alrededor de la posición esperada para estimar el tramo actual. El panel «EN VIVO» aparece al
+desplegar un viaje de hoy y se refresca cada 30 s solo si el viaje sigue abierto y la pestaña está visible. La URL del
+proxy se configura en **Ajustes** o se inyecta al publicar desde la variable de repositorio `RT_PROXY_URL`; si no hay
+proxy, el panel no aparece y queda el botón de la web oficial.
+
+El Worker se despliega con `.github/workflows/worker.yml` al cambiar `worker/**` (o a mano con `workflow_dispatch`).
+Necesita los secretos `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID`. También se puede lanzar en local:
+
+```sh
+python3 scripts/dev_proxy.py     # http://localhost:8931; la web lo usa sola en localhost
+```
+
+### Limitaciones del tiempo real
+
+- **No hay posición GPS pública.** Lurraldebus solo publica llegadas por parada; la posición es una estimación y puede
+  fallar en líneas con varios autobuses de la misma línea cerca.
+- Solo se muestra para viajes de hoy y paradas con tablero oficial. Si la web oficial cambia su HTML, el panel cae al
+  horario programado o muestra «sin datos».
+- El retraso se deduce de casar la hora prevista del tablero con la programada; un autobús muy retrasado puede
+  confundirse con el siguiente de la misma línea.
+
 ### Limitaciones
 
-- Son horarios programados, **sin tiempo real** propio: el botón «Tiempo real» abre la web oficial en esa parada (no se
-  puede mostrar aquí: su API no admite llamadas desde otras webs sin un servidor intermedio). Ante cambios, consulta la
-  [web oficial](https://lurraldebus.eus).
+- Los horarios de la app son programados. El panel en vivo usa el tablero oficial, pero solo para viajes de hoy y
+  paradas con tablero; ante cambios o incidencias, consulta la [web oficial](https://lurraldebus.eus).
 - Las horas de las paradas intermedias son estimaciones del operador (en los feeds ninguna parada está marcada como
   horaria).
 - Los feeds no traen calendario de festivos: la lista de `web/holidays.js` es aproximada (sin festivos locales) y se puede
@@ -89,8 +123,9 @@ No hay backend: el navegador carga ese JSON y `web/search.js` hace la búsqueda 
 ```sh
 python3 scripts/build_data.py     # refrescar datos (solo librería estándar)
 python3 scripts/build_fares.py    # refrescar tarifas (cuando cambien)
+python3 scripts/dev_proxy.py      # proxy local del tiempo real (http://localhost:8931)
 python3 -m http.server -d web     # abrir http://localhost:8000
-for t in data search pesa holidays fares; do node test/$t.test.js; done
+for t in data search realtime pesa holidays fares; do node test/$t.test.js; done
 ```
 
 Estructura:
@@ -100,6 +135,9 @@ Estructura:
 | `scripts/build_data.py` | descarga los GTFS y genera `web/data/network.json` |
 | `scripts/build_fares.py` | zonas y tarifas oficiales -> `web/data/fares.json` |
 | `web/search.js` | motor de búsqueda (directos + 1 trasbordo) y horario de línea, sin dependencias; funciona en navegador y Node |
+| `web/realtime.js` | tablero oficial: parser, casado con el horario y estimación de posición/retraso |
+| `worker/` | proxy CORS en Cloudflare Worker (`/health`, `/board`) |
+| `scripts/dev_proxy.py` | el mismo proxy en local para desarrollo |
 | `web/holidays.js`, `web/fares.js` | festivos habituales y tarifa por saltos de zona |
 | `web/app.js`, `index.html`, `style.css`, `theme.js` | interfaz |
 | `web/sw.js`, `manifest.webmanifest`, `icons/` | PWA |
@@ -113,6 +151,8 @@ La web se publica con GitHub Pages desde `.github/workflows/pages.yml`: pasa los
 - En cada **push** a `main` publica lo que haya en el repo.
 - Cada **día** (04:17 UTC) y bajo demanda vuelve a descargar los GTFS, guarda `network.json` en el repo si cambió y
   vuelve a publicar. Si la descarga o los tests fallan, no se despliega y sigue la versión anterior.
+- Para el tiempo real, el workflow sustituye `__RT_PROXY__` en `web/realtime.js` por la variable `RT_PROXY_URL` (por
+  ejemplo `https://lurraldebus-rt.<subdominio>.workers.dev`). El Worker se despliega aparte con `worker.yml`.
 
 Sobre el caché offline: los datos se sirven "caché y actualizar", así que tras una actualización diaria puede hacer
 falta abrir la app dos veces para ver los datos nuevos.

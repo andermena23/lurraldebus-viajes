@@ -11,8 +11,10 @@ plan de Cloudflare para uso normal) actúa de puente:
 | `GET /board?muni=<idMunicipio>&stop=<idParada>` | Devuelve solo la tabla de llegadas del tablero oficial |
 
 Lleva caché en memoria de 15 s para no golpear al servidor oficial si varios
-clientes consultan la misma parada a la vez. La cabecera `X-RT-Time` indica el
-instante (epoch, ms) al que corresponden los minutos de la tabla.
+clientes consultan la misma parada a la vez. Las cabeceras `X-RT-Time` (cuándo
+se generó la tabla) y `X-RT-Now` (hora del servidor al responder) indican el
+instante (epoch, ms) al que corresponden los minutos, sin fiarse del reloj del
+dispositivo.
 
 ## Despliegue automático
 

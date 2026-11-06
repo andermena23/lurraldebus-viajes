@@ -172,6 +172,16 @@ def check(data, feed_trips):
                            ("municipios", len(old["munis"]), len(data["munis"]))):
             if b < a * 0.8:
                 sys.exit(f"sospechoso: {what} pasan de {a} a {b} (más de un 20 % menos); revisa los feeds")
+        # Una línea que pierde la mitad de sus viajes casi nunca es real: suele ser un feed truncado (así se perdió
+        # GO07 entre semana: -68 de 100 viajes, solo -6 % en total, y el control global no lo veía).
+        def per_route(d):
+            return Counter((d["agencies"][r[3]], r[0]) for r in (d["routes"][t[0]] for t in d["trips"]))
+        before, after = per_route(old), per_route(data)
+        lost = [f"{ag} {name}: {n} -> {after[(ag, name)]}" for (ag, name), n in sorted(before.items())
+                if n >= 10 and after[(ag, name)] < n * 0.5]
+        if lost and "--accept-drops" not in sys.argv:
+            sys.exit("sospechoso: líneas que pierden más de la mitad de sus viajes (si es real, repite con "
+                     "--accept-drops):\n  " + "\n  ".join(lost))
 
 
 def main():

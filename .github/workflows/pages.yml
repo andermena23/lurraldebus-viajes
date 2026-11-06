@@ -30,7 +30,8 @@ jobs:
         if: github.event_name != 'push'
         # Si los datos nuevos no pasan las comprobaciones (feed roto), se sigue publicando el network.json del repo
         # en vez de dejar la web sin desplegar; el aviso queda en el resumen de la ejecución.
-        run: python3 scripts/build_data.py || echo "::warning::build_data.py falló: se publican los datos anteriores"
+        run: |
+          python3 scripts/build_data.py || echo "::warning::build_data.py falló, se publican los datos anteriores"
 
       - name: Tests
         run: |

@@ -95,6 +95,8 @@
     $("d").innerHTML = opts;
     combo($("o"), "d");
     combo($("d"));
+    combo($("os"), null, { noDone: true }); // las paradas son opcionales: elegir una no cierra el formulario
+    combo($("ds"), null, { noDone: true });
     $("validity").textContent =
       `${d.agencies.length} operadores · ${d.routes.length} líneas · horarios del ${dmy(d.validFrom)} al ${dmy(d.validTo)}` +
       (d.feedDate ? ` · datos del ${dmy(d.feedDate)}` : "");
@@ -118,8 +120,16 @@
     if (p.get("view") === "line" && lineIdx.has(p.get("line"))) { state.mode = "line"; $("line").value = p.get("line"); }
     $("form").classList.toggle("linemode", state.mode === "line");
 
-    $("o").addEventListener("change", () => { refreshStops(null, $("ds").value); run(); });
-    $("d").addEventListener("change", () => { refreshStops($("os").value, null); run(); });
+    // Elegir en un lado el municipio que ya está en el otro los intercambia (en vez de un error de «municipios distintos»).
+    let routeNow = { o: Number($("o").value), d: Number($("d").value) };
+    const fixRoute = (who) => {
+      const swapped = Number($("o").value) === Number($("d").value);
+      if (swapped) $(who === "o" ? "d" : "o").value = who === "o" ? routeNow.o : routeNow.d;
+      routeNow = { o: Number($("o").value), d: Number($("d").value) };
+      return swapped;
+    };
+    $("o").addEventListener("change", () => { const sw = fixRoute("o"); refreshStops(null, sw ? null : $("ds").value); run(); });
+    $("d").addEventListener("change", () => { const sw = fixRoute("d"); refreshStops(sw ? null : $("os").value, null); run(); });
     $("os").addEventListener("change", run);
     $("ds").addEventListener("change", run);
     $("date").addEventListener("change", () => setDate($("date").value));
@@ -138,16 +148,22 @@
     $("time").addEventListener("input", () => { live = false; });
     $("now").addEventListener("click", () => { $("date").value = todayStr(); $("time").value = nowStr(); live = true; run(); });
     $("allday").addEventListener("click", () => { $("time").value = ""; live = false; run(); });
-    $("swap").addEventListener("click", () => {
+    const swapRoute = () => {
       const [o, os, ds] = [$("o").value, $("os").value, $("ds").value];
       $("o").value = $("d").value;
       $("d").value = o;
+      routeNow = { o: Number($("o").value), d: Number($("d").value) };
       refreshStops(ds, os);
       run();
-    });
+    };
+    $("swap").addEventListener("click", swapRoute);
+    $("pswap").addEventListener("click", swapRoute); // desde la barra compacta, sin abrir el formulario
+    // el segmento «otro día» es un campo de fecha invisible encima: en escritorio hay que abrir el calendario a mano
+    $("date").addEventListener("click", () => { try { $("date").showPicker(); } catch (e) {} });
     $("form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
     // móvil: formulario plegable
-    $("psum").addEventListener("click", () => setCollapsed(false));
+    // si estabas abajo en los resultados, el formulario se abre arriba: llevamos la vista hasta él
+    $("psum").addEventListener("click", () => { setCollapsed(false); $("form").scrollIntoView({ block: "start" }); });
     $("pdone").addEventListener("click", () => { setCollapsed(true); out.scrollIntoView({ block: "start" }); });
     $("form").addEventListener("combo-done", () => setCollapsed(true));
     // Ajustes (diálogo modal): de momento solo el número de MUGI
@@ -209,7 +225,8 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) { tick(); refreshLive(); updateAgo(); }
     });
-    setCollapsed(true);
+    // primera visita (sin enlace ni rutas recientes): formulario abierto para empezar; si no, solo la barra con la búsqueda
+    setCollapsed(state.mode === "line" || p.has("o") || !!r0);
     run({ initial: true });
   }
 
@@ -328,15 +345,21 @@
     sel.tabIndex = -1;
     sel.setAttribute("aria-hidden", "true");
 
-    const items = [...sel.options].map((o) => {
-      const more = (cfg.more && cfg.more.get(o.value)) || [];
-      return { value: o.value, text: o.text, key: plain(o.text), more, moreKey: plain(more.join("|")),
-        group: o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "" };
-    });
+    let items = [];
+    const build = () => {
+      items = [...sel.options].map((o) => {
+        const more = (cfg.more && cfg.more.get(o.value)) || [];
+        return { value: o.value, text: o.text, key: plain(o.text), more, moreKey: plain(more.join("|")),
+          group: o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "" };
+      });
+    };
+    build();
     let shown = [], active = 0;
 
     const label = () => sel.selectedOptions[0]?.text || "";
     const sync = () => { if (document.activeElement !== input) input.value = label(); };
+    // las opciones del <select> se han rehecho (p. ej. las paradas de otro municipio)
+    const refresh = () => { build(); input.value = label(); close(); };
     const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
 
     function open() {
@@ -369,7 +392,7 @@
       if (item.value !== sel.value) { sel.value = item.value; sel.dispatchEvent(new Event("change")); }
       input.value = label();
       if (advance && nextId) $(nextId).parentNode.querySelector(".combo-in").focus();
-      else if (advance) sel.closest("form").dispatchEvent(new CustomEvent("combo-done"));
+      else if (advance && !cfg.noDone) sel.closest("form").dispatchEvent(new CustomEvent("combo-done"));
     }
 
     input.addEventListener("focus", () => { input.select(); open(); });
@@ -399,6 +422,7 @@
       if (li) pick(shown[Number(li.dataset.k)], true);
     });
     combos.push({ sync });
+    sel._combo = { refresh };
     sync();
   }
 
@@ -485,6 +509,7 @@
       const opt = [...sel.options].find((o) => o.dataset.name === keepName);
       if (opt) sel.value = opt.value;
     }
+    if (sel._combo) sel._combo.refresh();
   }
 
   function onClick(e) {
@@ -630,18 +655,23 @@
   function syncControls() {
     const today = todayStr(), date = $("date").value;
     $("allday").setAttribute("aria-pressed", String($("time").value === ""));
+    $("now").setAttribute("aria-pressed", String(live && $("time").value !== ""));
+    $("timebtn").classList.toggle("on", $("time").value !== "" && !live);
     for (const b of $("dayq").querySelectorAll("[data-day]"))
       b.setAttribute("aria-pressed", String(date === addDays(today, Number(b.dataset.day))));
+    const otherDay = !!date && date !== today && date !== addDays(today, 1);
+    $("datebtn").classList.toggle("on", otherDay);
+    $("datelabel").textContent = otherDay ? shortDay(date) : "Otro día";
     const hn = HOL.holiday(date);
-    $("holname").textContent = hn ? `· ${hn}` : "· horario de domingo";
+    $("holname").textContent = hn ? `· ${hn}` : "";
     for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === state.mode));
     if (state.mode === "line") {
-      $("psum-route").textContent = $("line").selectedOptions[0] ? $("line").selectedOptions[0].text.split(" · ")[0] + " · horario de la línea" : "Línea";
+      $("psum-route").textContent = $("line").selectedOptions[0] ? $("line").selectedOptions[0].text.split(" · ")[0] + " · horario" : "Línea";
       $("psum-when").textContent = shortDay(date);
     } else {
       $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
       const stops = [stopName("os"), stopName("ds")].filter(Boolean).join(" → ");
-      $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops].filter(Boolean).join(" · ");
+      $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops, !$("transfers").checked && "sin trasbordos"].filter(Boolean).join(" · ");
     }
     renderRecent();
     renderSaved();

@@ -72,11 +72,14 @@
   </div>
 
   <form id="form" class="panel" autocomplete="off">
-    <!-- móvil: barra compacta que sustituye al formulario mientras se miran resultados -->
-    <button type="button" id="psum" class="psum" aria-expanded="false" aria-controls="pfull">
-      <span class="psum-text"><b id="psum-route"></b><small id="psum-when"></small></span>
-      <span class="psum-edit">Cambiar</span>
-    </button>
+    <!-- barra compacta (escritorio y móvil): sustituye al formulario mientras se miran resultados -->
+    <div class="bar">
+      <button type="button" id="psum" class="psum" aria-expanded="false" aria-controls="pfull">
+        <span class="psum-text"><b id="psum-route"></b><small id="psum-when"></small></span>
+        <span class="psum-edit">Cambiar</span>
+      </button>
+      <button type="button" id="pswap" class="icon bar-swap" title="Invertir origen y destino" aria-label="Invertir origen y destino">⇄</button>
+    </div>
 
     <div id="pfull" class="pfull">
       <div class="linesel field">
@@ -88,7 +91,7 @@
           <label>Origen <select id="o"></select></label>
           <label class="stoplbl">Parada de origen <select id="os" class="stop"></select></label>
         </div>
-        <button type="button" id="swap" class="icon" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino">⇄</button>
+        <button type="button" id="swap" class="icon rswap" title="Intercambiar origen y destino" aria-label="Intercambiar origen y destino">⇄</button>
         <div class="rcol">
           <label>Destino <select id="d"></select></label>
           <label class="stoplbl">Parada de destino <select id="ds" class="stop"></select></label>
@@ -100,39 +103,34 @@
           <span class="lbl">Día</span>
           <div class="daynav">
             <button type="button" id="prev" class="icon" aria-label="Día anterior">‹</button>
-            <input type="date" id="date" required aria-label="Día">
+            <div class="seg" id="dayq">
+              <button type="button" data-day="0">Hoy</button>
+              <button type="button" data-day="1">Mañana</button>
+              <label class="segopt" id="datebtn"><span id="datelabel">Otro día</span><input type="date" id="date" required aria-label="Elegir otro día"></label>
+            </div>
             <button type="button" id="next" class="icon" aria-label="Día siguiente">›</button>
           </div>
         </div>
-        <div class="field">
-          <span class="lbl nolbl">&nbsp;</span>
-          <div class="seg" id="dayq">
-            <button type="button" data-day="0">Hoy</button>
-            <button type="button" data-day="1">Mañana</button>
-          </div>
-        </div>
         <div class="field timefield">
-          <span class="lbl">Desde las</span>
-          <input type="time" id="time" aria-label="Hora de salida mínima">
-        </div>
-        <div class="field timefield">
-          <span class="lbl nolbl">&nbsp;</span>
-          <div class="seg">
+          <span class="lbl">Salida</span>
+          <div class="seg" id="timeq">
             <button type="button" id="now">Ahora</button>
             <button type="button" id="allday">Todo el día</button>
+            <label class="segopt segtime" id="timebtn"><span>Desde</span><input type="time" id="time" aria-label="Hora de salida mínima"></label>
           </div>
         </div>
       </div>
 
-      <div class="opts" role="group" aria-label="Filtros">
-        <label class="toggle t-only" title="Mostrar también combinaciones con un cambio de autobús, mezcladas con los directos"><input type="checkbox" id="transfers" checked><span>Trasbordos</span></label>
-        <label class="toggle t-only" title="Líneas cuyo código acaba en E: hay que pedirlas por teléfono con antelación"><input type="checkbox" id="demand" checked><span>A demanda <small>(hay que llamar)</small></span></label>
-        <label class="toggle" title="Aplica el horario de domingo"><input type="checkbox" id="holiday"><span>Festivo <small id="holname">· horario de domingo</small></span></label>
+      <div class="formfoot">
+        <div class="opts" role="group" aria-label="Filtros">
+          <label class="toggle t-only" title="Mostrar también combinaciones con un cambio de autobús, mezcladas con los directos"><input type="checkbox" id="transfers" checked><span>Trasbordos</span></label>
+          <label class="toggle t-only" title="Líneas cuyo código acaba en E: hay que pedirlas por teléfono con antelación"><input type="checkbox" id="demand" checked><span>A demanda</span></label>
+          <label class="toggle" title="Aplica el horario de domingo"><input type="checkbox" id="holiday"><span>Festivo <small id="holname"></small></span></label>
+        </div>
+        <button type="button" id="pdone" class="done">Ver resultados</button>
       </div>
 
       <div class="recent" id="recent" hidden></div>
-
-      <button type="button" id="pdone" class="done">Ver resultados</button>
     </div>
   </form>
 

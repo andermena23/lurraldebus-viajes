@@ -70,13 +70,6 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px s
 .combo-list li[aria-selected=true]:not(.active) { font-weight: 700; }
 .combo-list li small { display: block; font-size: .75rem; opacity: .75; margin-top: 1px; }
 .combo-list li.none { color: var(--muted); cursor: default; }
-.more { margin-top: 18px; }
-.more > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--accent); padding: 8px 0; list-style: none; }
-.more > summary::-webkit-details-marker { display: none; }
-.more > summary::before { content: "▸ "; }
-.more[open] > summary::before { content: "▾ "; }
-.more > summary small { color: var(--muted); font-weight: 400; }
-.more .opts { margin-top: 14px; }
 .gear { min-height: 36px; width: 36px; padding: 0; border-radius: 999px; display: grid; place-items: center; flex: none; color: var(--muted); }
 .gear:hover { color: var(--ink); }
 .gear svg { width: 20px; height: 20px; fill: currentColor; }
@@ -99,8 +92,10 @@ button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .buy button[data-buy] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
 .buy .buy-pick { margin: 10px 0 0; font-size: .85rem; }
 .buy .buy-note { margin: 8px 0 0; }
-.stops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
-select.stop { font-size: .92rem; }
+.rcol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stoplbl { font-size: .74rem; }
+.stoplbl[hidden] { display: none; }
+select.stop { font-size: .92rem; min-height: 38px; padding: 6px 10px; }
 /* barra compacta (solo móvil) y botón "Ver resultados" */
 .psum { display: none; width: 100%; min-height: 58px; padding: 8px 14px; border: 0; border-radius: 8px; background: transparent; text-align: left; align-items: center; gap: 12px; }
 .psum-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -124,7 +119,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .seg button { border: 0; border-radius: 0; min-height: 42px; padding: 6px 13px; background: transparent; white-space: nowrap; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .toggle { flex-direction: row; cursor: pointer; }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .toggle span { padding: 6px 13px; border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; color: var(--ink); background: var(--bg); }
@@ -287,7 +282,6 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .panel:not(.collapsed) .done { display: block; }
   .route { grid-template-columns: 1fr; gap: 10px; }
   .route > button { margin: 0; justify-self: center; transform: rotate(90deg); }
-  .stops-grid { grid-template-columns: 1fr; }
   /* día (con su acceso rápido) y hora: dos bloques con aire entre ellos */
   .when { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px 12px; margin-top: 22px; align-items: end; }
   .when .field:nth-child(1), .when .field:nth-child(2) { grid-column: 1 / -1; }
@@ -298,10 +292,9 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .field input[type=time], .field .seg { width: 100%; }
   .field .seg button { flex: 1; padding: 6px 8px; }
   .when .field:nth-child(4) .seg button { font-size: .9rem; }
-  .more { margin-top: 20px; border-top: 1px solid var(--line); }
-  .more > summary { padding: 14px 0 6px; }
-  .more .stops-grid { margin-top: 10px; }
-  .more .opts { margin-top: 16px; }
+  .opts { margin-top: 18px; gap: 8px; }
+  .toggle { flex: 1 1 auto; }
+  .toggle span { display: block; text-align: center; padding: 9px 12px; }
   .recent { margin-top: 22px; }
   .done { margin-top: 22px; }
 
@@ -388,10 +381,13 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .modes + .panel { margin-top: 0; }
 .linesel { display: none; }
 .linemode .linesel { display: block; }
-.linemode .route, .linemode .timefield, .linemode details.more, .linemode .recent { display: none; }
+.linemode .route, .linemode .timefield, .linemode .t-only, .linemode .recent { display: none; }
 
 /* línea a demanda, sentido y restricciones de parada */
 .tag.demand { background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
+/* trasbordos mezclados con los directos: borde discontinuo + etiqueta para distinguirlos de un vistazo */
+.tag.xfer { background: transparent; color: var(--ink); border: 1px dashed var(--muted); border-radius: 10px; white-space: normal; text-align: center; max-width: 100%; line-height: 1.25; }
+details.trip.xfer { border-left: 3px dashed var(--muted); }
 .dir { color: var(--ink); font-size: .8rem; font-weight: 600; }
 .detail h3 .dir { font-weight: 500; color: var(--muted); }
 .notice.demand { margin: 8px 0; }
@@ -482,7 +478,7 @@ details.notice > summary { cursor: pointer; }
 details.notice small { opacity: .8; margin-left: 4px; }
 details.notice p { margin: 8px 0 0; }
 .notice button, .more-note button { font-size: .85rem; padding: 4px 10px; min-height: 32px; margin-left: 6px; border-radius: 8px; }
-.more-note { margin: 14px 0; text-align: center; color: var(--muted); font-size: .88rem; }
+.more-note { margin: 10px 0 14px; text-align: center; color: var(--muted); font-size: .88rem; }
 
 /* horario completo de una línea */
 .lt-wrap { max-height: 78vh; overflow: auto; }

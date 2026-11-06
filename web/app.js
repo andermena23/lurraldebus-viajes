@@ -464,6 +464,7 @@
     }
     const names = [...groups.keys()].sort((a, b) => a.localeCompare(b, "es"));
     const sel = $(selId);
+    sel.closest("label").hidden = names.length < 2; // con una sola parada no hay nada que elegir
     sel.innerHTML = `<option value="">Cualquier parada (${names.length})</option>` +
       names.map((n) => `<option value="${groups.get(n).join(",")}" data-name="${esc(n)}">${esc(n)}</option>`).join("");
     if (keepIds) {
@@ -484,6 +485,7 @@
     }
     if ((el = t.closest("[data-line]"))) { state.line = el.dataset.line; state.tab = "trips"; save(); return render(); }
     if ((el = t.closest("[data-dir]"))) { state.dir = Number(el.dataset.dir); return render(); }
+    if ((el = t.closest("[data-xfer]"))) { $("transfers").checked = el.dataset.xfer === "1"; return run({ refresh: true }); }
     if (t.closest("[data-alltrans]")) { state.allTrans = !state.allTrans; return run({ refresh: true }); }
     if (t.closest("[data-holiday]")) { $("holiday").checked = true; return run({ refresh: true }); }
     if ((el = t.closest("[data-live-refresh]"))) {
@@ -616,9 +618,8 @@
     $("allday").setAttribute("aria-pressed", String($("time").value === ""));
     for (const b of $("dayq").querySelectorAll("[data-day]"))
       b.setAttribute("aria-pressed", String(date === addDays(today, Number(b.dataset.day))));
-    if ($("os").value || $("ds").value || $("holiday").checked || !$("transfers").checked || !$("demand").checked) $("more").open = true;
     const hn = HOL.holiday(date);
-    $("holname").textContent = hn ? `(${hn} · horario de domingo)` : "(horario de domingo)";
+    $("holname").textContent = hn ? `· ${hn}` : "· horario de domingo";
     for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === state.mode));
     if (state.mode === "line") {
       $("psum-route").textContent = $("line").selectedOptions[0] ? $("line").selectedOptions[0].text.split(" · ")[0] + " · horario de la línea" : "Línea";
@@ -690,7 +691,7 @@
     const trans = (q.transfers ? res.transfer : []).filter((r) => r.dep >= minT && keepLine(r)).sort(sorter);
 
     out.innerHTML = summaryHtml(q, res, nowMin) + tabsHtml() +
-      (state.tab === "compare" ? compareHtml(res.direct.length ? res.direct : res.transfer, !res.direct.length) : tripsHtml(q, res, direct, trans, nowMin, minT));
+      (state.tab === "compare" ? compareHtml(res.direct.length ? res.direct : res.transfer, !res.direct.length) : tripsHtml(q, res, direct, trans, nowMin, sorter));
   }
 
   // ---- avisos oficiales, vigencia por operador ----
@@ -772,7 +773,9 @@
     return `<div class="tabs" role="tablist">${tab("trips", "Viajes")}${tab("compare", "Comparar líneas")}</div>`;
   }
 
-  function tripsHtml(q, res, direct, trans, nowMin, minT) {
+  const MAX_TRANS = 40;
+
+  function tripsHtml(q, res, direct, trans, nowMin, sorter) {
     // chips de línea con nº de servicios del día
     const counts = new Map();
     for (const r of [...res.direct, ...(q.transfers ? res.transfer : [])])
@@ -783,7 +786,8 @@
         lines.map(([n, c]) => `<button type="button" class="lchip" data-chip="${esc(n)}" aria-pressed="${state.line === n}"><i style="background:${color(n)}"></i>${esc(n)} <small>${c}</small></button>`).join("") + "</div>"
       : "<div></div>";
     const seg = (k, t) => `<button type="button" data-sort="${k}" aria-pressed="${state.sort === k}">${t}</button>`;
-    let html = `<div class="toolbar">${chips}<div class="sort"><span class="muted">Ordenar</span><span class="seg">${seg("dep", "Salida")}${seg("arr", "Llegada")}${seg("dur", "Duración")}</span></div></div>`;
+    let html = `<div class="toolbar">${chips}<div class="sort"><span class="muted">Ordenar</span><span class="seg">${seg("dep", "Salida")}${seg("arr", "Llegada")}${seg("dur", "Duración")}</span></div>
+      <div class="sort"><span class="muted">Mostrar</span><span class="seg"><button type="button" data-xfer="1" aria-pressed="${q.transfers}">Con trasbordos</button><button type="button" data-xfer="0" aria-pressed="${!q.transfers}">Solo directos</button></span></div></div>`;
 
     if (!res.direct.length && !res.transfer.length) {
       return html + `<p class="empty">No hay servicios entre estos municipios ese día${q.transfers ? "" : ". Prueba a incluir trasbordos"}.</p>`;
@@ -792,18 +796,22 @@
     if (!direct.length && !trans.length)
       html += `<p class="empty">No quedan salidas desde las ${esc(last.time)}. <button type="button" data-allday>Ver todo el día</button></p>`;
 
-    html += cards(direct, nowMin, true);
-    if (trans.length) {
-      const cut = !state.allTrans && trans.length > 40;
-      html += `<h3 class="section">Con un trasbordo <small>· ${trans.length} ${pl(trans.length, "opción", "opciones")}${cut ? ", mostrando 40" : ""}</small></h3>` +
-        cards(cut ? trans.slice(0, 40) : trans, nowMin, false);
+    // Directos y trasbordos van mezclados en un único orden: si los trasbordos estuvieran aparte, al final de la lista,
+    // parecería que no hay viaje a esa hora aunque sí lo haya.
+    const capped = q.transfers && !state.allTrans && trans.length > MAX_TRANS;
+    let shown = trans;
+    if (capped) { // si hay demasiados, se quedan los más rápidos (pero se ordenan junto a los directos como el resto)
+      const keep = new Set([...trans].sort((a, b) => a.dur - b.dur || a.dep - b.dep).slice(0, MAX_TRANS));
+      shown = trans.filter((r) => keep.has(r));
     }
-    if (q.transfers && (res.hiddenWait || trans.length > 40 || state.allTrans)) {
+    if (q.transfers && (res.hiddenWait || capped || state.allTrans)) {
       const notes = [];
-      if (!state.allTrans && trans.length > 40) notes.push(`Se muestran 40 de ${trans.length} combinaciones.`);
-      if (!state.allTrans && res.hiddenWait) notes.push(`Hay ${res.hiddenWait} más con más de 2 h de espera, ocultas.`);
+      if (capped) notes.push(`Hay ${trans.length} combinaciones con trasbordo: se muestran las ${MAX_TRANS} más rápidas.`);
+      if (!state.allTrans && res.hiddenWait) notes.push(`Otras ${res.hiddenWait} con más de 2 h de espera están ocultas.`);
+      if (state.allTrans) notes.push("Mostrando todas las combinaciones con trasbordo.");
       html += `<p class="more-note">${notes.join(" ")} <button type="button" data-alltrans>${state.allTrans ? "Ver solo las razonables" : "Ver todas"}</button></p>`;
     }
+    html += cards([...direct, ...shown].sort(sorter), nowMin, true);
     return html;
   }
 
@@ -811,14 +819,14 @@
     if (!list.length) return "";
     const maxDur = Math.max(...list.map((r) => r.dur));
     const fastest = list.length > 1 ? Math.min(...list.map((r) => r.dur)) : -1;
-    const nextDep = markNext && nowMin != null ? Math.min(...list.filter((r) => r.dep >= nowMin && !isDemand(r)).map((r) => r.dep)) : Infinity;
+    const nextDep = markNext && nowMin != null ? Math.min(...list.filter((r) => !r.transfers && r.dep >= nowMin && !isDemand(r)).map((r) => r.dep)) : Infinity;
     let html = "", hour = null, nextDone = false, idx = 0;
     for (const r of list) {
       if (state.sort === "dep") {
         const h = Math.floor(r.dep / 60);
         if (h !== hour) { hour = h; html += `<div class="hour">${pad(h % 24)}:00${h >= 24 ? " +1" : ""}</div>`; }
       }
-      const isNext = !nextDone && r.dep === nextDep && !isDemand(r);
+      const isNext = !nextDone && !r.transfers && r.dep === nextDep && !isDemand(r);
       if (isNext) nextDone = true;
       html += tripHtml(r, { maxDur, fastest: r.dur === fastest, next: isNext, nowMin, i: idx++ });
     }
@@ -1054,18 +1062,18 @@
     const wait = r.transfers ? r.legs[1].dep - r.legs[0].arr : 0;
     const demand = isDemand(r);
     const soon = !r.transfers && inMin != null && !demand;
-    const note = r.transfers ? `1 cambio · ${wait} min`
+    const note = r.transfers ? `espera ${wait} min`
       : demand ? "hay que pedirlo" : soon ? (inMin === 0 ? "sale ahora" : `sale en ${inMin} min`) : "";
     const hs = r.transfers ? "" : headsign(first.trip);
     const detail = r.legs.map((l, k) => legHtml(r, l, k)).join("") +
       `<p class="muted fine">Horario programado: las horas de las paradas intermedias son estimaciones del operador.</p>`;
-    return `<details class="trip${fastest ? " fastest" : ""}${demand ? " demand" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
+    return `<details class="trip${fastest ? " fastest" : ""}${demand ? " demand" : ""}${r.transfers ? " xfer" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
       <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
       <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
+      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${r.transfers ? `<span class="tag xfer" title="Hay que cambiar de autobús: ${wait} min de espera">1 cambio en ${esc(eng.stopMuni(r.legs[0].to))}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
       </summary><div class="detail">${detail}</div></details>`;
   }
 

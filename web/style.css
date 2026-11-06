@@ -3,7 +3,7 @@
   --accent: #007882; --accent-ink: #fff; --teal: #00a0ae;
   --good: #3f7a0e; --good-bg: #e9f4d9; --brand: #8dc63f;
   --warn-bg: #fff4d6; --warn: #8a5a00; --chip: #e8eced; --shadow: 0 1px 3px rgba(20, 40, 45, .08);
-  --band: #00a0ae; --band-ink: #fff; --line2: #bcc7cb;
+  --band: #00a0ae; --band-ink: #fff; --line2: #bcc7cb; --bad: #b3261e; --bad-bg: #fdeceb; --bus-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z' fill='%23fff'/%3E%3C/svg%3E");
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -12,7 +12,7 @@
     --accent: #3cc6d3; --accent-ink: #06262a; --teal: #3cc6d3;
     --good: #a6dc5c; --good-bg: #20301a; --brand: #8dc63f;
     --warn-bg: #3a2f10; --warn: #f0c36a; --chip: #213036; --shadow: none;
-    --band: #00525a; --band-ink: #e6f7f9; --line2: #3b4e55;
+    --band: #00525a; --band-ink: #e6f7f9; --line2: #3b4e55; --bad: #ff8f86; --bad-bg: #3d1b19; --bus-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z' fill='%2310240a'/%3E%3C/svg%3E");
   }
 }
 :root[data-theme=light] { color-scheme: light; }
@@ -21,7 +21,7 @@
   --accent: #3cc6d3; --accent-ink: #06262a; --teal: #3cc6d3;
   --good: #a6dc5c; --good-bg: #20301a; --brand: #8dc63f;
   --warn-bg: #3a2f10; --warn: #f0c36a; --chip: #213036; --shadow: none;
-  --band: #00525a; --band-ink: #e6f7f9; --line2: #3b4e55;
+  --band: #00525a; --band-ink: #e6f7f9; --line2: #3b4e55; --bad: #ff8f86; --bad-bg: #3d1b19; --bus-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z' fill='%2310240a'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -260,8 +260,12 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 /* con tiempo real: lo que el bus ya dejó atrás se atenúa y se marca dónde va */
 .detail li.is-past { opacity: .5; }
 .detail li.is-past::after { background: var(--accent); opacity: .6; }
-.detail li.is-bus::before { left: calc(var(--axis) + var(--ind, 0px) - 7px); top: calc(var(--pad) + var(--lh) / 2 - 7px); width: 14px; height: 14px;
-  background: var(--good); border: 3px solid var(--card); box-shadow: 0 0 0 1.5px var(--good); animation: livepulse 2s ease-in-out infinite; }
+/* el bus: insignia con su icono sobre el hilo, con un anillo que late */
+.detail li.is-bus::before { left: calc(var(--axis) + var(--ind, 0px) - 11px); top: calc(var(--pad) + var(--lh) / 2 - 11px); width: 22px; height: 22px;
+  background: var(--good) var(--bus-ico) center / 14px 14px no-repeat; border: 2px solid var(--card); box-shadow: 0 0 0 1.5px var(--good);
+  animation: busring 2.2s ease-out infinite; }
+@keyframes busring { 0% { box-shadow: 0 0 0 1.5px var(--good), 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 1.5px var(--good), 0 0 0 9px transparent; } }
 .transfer-note { margin: 12px 0 0; padding: 6px 10px; background: var(--warn-bg); color: var(--warn); border-radius: 8px; }
 
 /* entrada suave (se desactiva en refrescos automáticos y con "reducir movimiento") */
@@ -513,7 +517,18 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live-eta small { font-size: .82rem; font-weight: 700; }
 .live-hero-sub { display: flex; flex-direction: column; gap: 1px; font-size: .86rem; color: var(--ink); min-width: 0; }
 .live-clock { font-size: .78rem; color: var(--muted); white-space: nowrap; }
-.live-headline { margin: 2px 0 2px; font-size: 1.15rem; font-weight: 700; }
+.live-headline { display: flex; align-items: center; gap: 10px; margin: 2px 0 2px; font-size: 1.1rem; line-height: 1.25; font-weight: 700; }
+.live-headline::before { flex: none; display: grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%; font-size: .95rem; font-weight: 800;
+  background: var(--chip); color: var(--muted); content: "?"; }
+.live-headline.ended::before { content: "✓"; }
+/* has perdido el bus: rojo con ✕, nada que ver con el verde/azul de «llega en X min» */
+.live-headline.lost { color: var(--bad); }
+.live-headline.lost::before { content: "✕"; background: var(--bad); color: var(--card); }
+.live.is-missed { background: color-mix(in srgb, var(--bad) 7%, var(--card)); box-shadow: inset 4px 0 0 var(--bad); }
+.live.is-missed .live-badge { color: var(--bad); }
+.live.is-missed .live-dot { background: var(--bad); animation: none; }
+.live.is-done .live-badge { color: var(--muted); }
+.live.is-done .live-dot { background: var(--muted); animation: none; }
 .live-headline + .live-hero-sub { margin: 0 0 6px; }
 
 .live-delay { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: .84rem; }
@@ -631,3 +646,13 @@ details.notice[open] > summary { white-space: normal; }
 .detail li.sub.is-bus { background: var(--conn) no-repeat calc(var(--axis) - 1px) calc(var(--pad) + var(--lh) / 2 - 1px) / calc(var(--ind) + 1px) 2px,
   linear-gradient(to right, var(--good-bg), transparent 85%); }
 .detail li .mn { font-weight: 650; }
+
+/* mismo icono delante de «Entre X y Y», para ligar el panel con la lista */
+.live-where::before { content: ""; display: inline-block; width: 1.15em; height: 1.15em; margin-right: 7px; vertical-align: -.2em; background: var(--good);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 7h16a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3v2h-3v-2h-10v2H8v-2a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3zm0 4v6h16v-6zm3 9a1.6 1.6 0 1 0 0 .1zm10 0a1.6 1.6 0 1 0 0 .1z'/%3E%3C/svg%3E") center / contain no-repeat; }
+
+/* tu parada, ya perdida */
+.live-tag.miss { background: var(--bad); color: var(--card); }
+.detail li.is-missed { font-weight: 650; }
+.detail li.is-missed time { color: var(--bad); text-decoration: line-through; }

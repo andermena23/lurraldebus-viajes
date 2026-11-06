@@ -21,10 +21,23 @@
   const clockText = (min) => LB.fmt(min).text;
   const dmy = (n) => `${String(n).slice(6)}/${String(n).slice(4, 6)}/${String(n).slice(0, 4)}`;
   // "Uk01-azkoitia>azpeitia>zestoa" -> "Azkoitia › Azpeitia › Zestoa" (sin el código repetido y con espacios para poder partir línea)
-  const longName = (li) => {
+  // El nombre largo del GTFS va siempre en un solo sentido; con `ti` (un viaje) se da la vuelta si el viaje va al revés,
+  // comparando los municipios de su primera y su última parada con los extremos del nombre.
+  const strip = (x) => String(x).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const longName = (li, ti) => {
     const code = li.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return li.long.replace(new RegExp("^" + code + "\\s*-\\s*", "i"), "")
-      .split(">").map((x) => x.trim()).filter(Boolean).map((x) => x[0].toUpperCase() + x.slice(1)).join(" › ");
+    const parts = li.long.replace(new RegExp("^" + code + "\\s*-\\s*", "i"), "")
+      .split(">").map((x) => x.trim()).filter(Boolean).map((x) => x[0].toUpperCase() + x.slice(1));
+    if (ti != null && parts.length > 1) {
+      const t = data.trips[ti], last = parts.length - 1;
+      const at = (si) => strip(data.munis[data.stops[si][1]]);
+      const find = (m) => parts.findIndex((p) => { const s = strip(p); return s && m && (s.includes(m) || m.includes(s)); });
+      const iF = find(at(t[3][0])), iL = find(at(t[3][t[3].length - 1]));
+      // con los dos extremos conocidos, manda su orden; con uno solo, que esté al final (o al principio) de la lista
+      const reverse = iF >= 0 && iL >= 0 ? iF > iL : iF >= 0 ? iF === last : iL >= 0 ? iL === 0 : false;
+      if (reverse) parts.reverse();
+    }
+    return parts.join(" › ");
   };
   const pl = (n, one, many) => (n === 1 ? one : many);
   const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${pad(m % 60)} min` : `${m} min`);
@@ -647,7 +660,7 @@
       if (!by.has(key)) by.set(key, {
         name: key, names: lineNames(r), deps: [], durs: [],
         agency: [...new Set(r.legs.map((l) => eng.line(l.route).agency))].join(" / "),
-        long: r.legs.map((l) => longName(eng.line(l.route))).join(" + "),
+        long: r.legs.map((l) => longName(eng.line(l.route), l.trip)).join(" + "),
       });
       by.get(key).deps.push(r.dep); by.get(key).durs.push(r.dur);
     }
@@ -877,15 +890,15 @@
     const sched = clockText(data.trips[l.trip][4][l.i] + (l.shift || 0));
 
     // Titular: minutos hasta tu parada (o el estado del viaje).
-    let minutes = null, label = "", clock = "", headline = "";
+    let minutes = null, label = "", clock = "", headline = "", tone = "none";
     if (r.notStarted) {
       minutes = Math.max(0, Math.round(r.eta || 0));
       label = "para la salida";
       if (r.etaClock) clock = `a las ${r.etaClock}`;
     } else if (r.finished) {
-      headline = "El viaje ya ha terminado";
+      headline = "El viaje ya ha terminado"; tone = "ended";
     } else if (r.passed) {
-      headline = "Ya pasó tu parada";
+      headline = "Has perdido este autobús: ya pasó por tu parada"; tone = "lost";
       const ago = r.eta == null ? null : Math.max(1, Math.round(-r.eta));
       if (ago) label = `hace ${ago} min`;
     } else if (r.eta != null) {
@@ -897,7 +910,7 @@
     }
 
     const hero = headline
-      ? `<p class="live-headline">${esc(headline)}</p>${label ? `<p class="live-hero-sub">${esc(label)}</p>` : ""}`
+      ? `<p class="live-headline ${tone}">${esc(headline)}</p>${label ? `<p class="live-hero-sub">${esc(label)}</p>` : ""}`
       : `<div class="live-hero"><span class="live-eta" aria-live="polite"><b>${minutes}</b><small>min</small></span>
           <span class="live-hero-sub">${esc(label)}${clock ? `<span class="live-clock">${esc(clock)}</span>` : ""}</span></div>`;
 
@@ -927,6 +940,8 @@
     const state = !r || !r.ok ? "off" : r.source === "vivo" ? "live" : "estimated";
     el.dataset.state = state;
     el.classList.toggle("is-est", state === "estimated");
+    el.classList.toggle("is-missed", !!(r && r.ok && r.passed && !r.finished)); // el bus ya pasó por tu parada: aviso en rojo
+    el.classList.toggle("is-done", !!(r && r.ok && r.finished));
     markStops(el, r);
     const label = el.querySelector(".live-state");
     if (label) label.textContent = state === "live" ? "EN VIVO" : state === "estimated" ? "SEGÚN HORARIO" : "SIN DATOS";
@@ -961,15 +976,19 @@
     const cur = ok && !r.finished ? Math.round(bus) : -1;
     const tag = boardingTag(r);
     const board = Number(el.dataset.live.split(":")[1]);
+    const missed = !!(r && r.ok && r.passed && !r.finished);
     for (const li of leg.querySelectorAll("ol:not(.alt-list) > li[data-p]")) {
       const p = Number(li.dataset.p);
-      li.classList.toggle("is-past", ok && p < bus - 0.2 && p !== cur);
+      // tu parada perdida no se atenúa como las demás que ya quedaron atrás: se marca para que se vea que es la tuya
+      li.classList.toggle("is-past", ok && p < bus - 0.2 && p !== cur && !(missed && p === board));
+      li.classList.toggle("is-missed", missed && p === board);
       li.classList.toggle("is-bus", p === cur);
       const span = li.querySelector("span");
       for (const old of li.querySelectorAll(".live-tag")) old.remove();
       const add = (cls, text) => { const e = document.createElement("em"); e.className = `live-tag ${cls}`; e.textContent = text; span.append(e); };
       if (p === cur) add("here", "Bus aquí");
       if (p === board && tag && p !== cur) add("eta", tag);
+      if (p === board && missed) add("miss", "ya pasó");
     }
   }
 
@@ -1082,7 +1101,7 @@
     const acts = `<div class="leg-actions">${hasLive ? "" : rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
-    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${hasLive ? "" : live}
+    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li, l.trip))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${hasLive ? "" : live}
       <div class="leg-card${hasLive ? " has-live" : ""}">${hasLive ? live : ""}<div class="stops"><ol>${rows.join("")}</ol>${more}</div><div class="leg-foot">${acts}</div></div>${op}${buy}</div>`;
   }
 

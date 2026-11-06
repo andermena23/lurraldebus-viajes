@@ -45,7 +45,7 @@
   const dayLabel = (s) => { const t = dayFmt.format(new Date(s + "T12:00:00")); return t[0].toUpperCase() + t.slice(1); };
 
   let eng, data, fares = null, last = null, rtEng = null;
-  const state = { tab: "trips", sort: "dep", line: null, mode: "trip", allTrans: false, lineKey: "", dir: 0, dirTrip: null };
+  const state = { tab: "trips", sort: "dep", line: null, mode: "trip", transfers: true, allTrans: false, lineKey: "", dir: 0, dirTrip: null };
   const liveJobs = new Map(); // panel en vivo -> AbortController
   const out = $("out");
   let oneOp = null; // operador común a todos los viajes (se muestra una vez, no en cada tarjeta)
@@ -114,7 +114,7 @@
     live = !p.has("time") && $("date").value === todayStr();
     // festivo: lo que diga el enlace; si no, el que corresponda a la fecha (se puede desmarcar)
     $("holiday").checked = p.has("h") ? p.get("h") === "1" : !!HOL.holiday($("date").value);
-    $("transfers").checked = p.get("t") !== "0";
+    state.transfers = p.get("t") !== "0"; // el filtro de trasbordos vive encima de los resultados
     $("demand").checked = p.get("e") !== "0";
     if (p.get("tab") === "compare") state.tab = "compare";
     if (p.get("view") === "line" && lineIdx.has(p.get("line"))) { state.mode = "line"; $("line").value = p.get("line"); }
@@ -139,7 +139,7 @@
       const b = e.target.closest("[data-day]");
       if (b) setDate(addDays(todayStr(), Number(b.dataset.day)));
     });
-    for (const id of ["time", "holiday", "transfers", "demand", "line"]) $(id).addEventListener("change", () => run());
+    for (const id of ["time", "holiday", "demand", "line"]) $(id).addEventListener("change", () => run());
     $("line").addEventListener("change", () => { state.dir = 0; });
     document.querySelector(".modes").addEventListener("click", (e) => {
       const b = e.target.closest("[data-mode]");
@@ -226,6 +226,7 @@
       if (!document.hidden) { tick(); refreshLive(); updateAgo(); }
     });
     // primera visita (sin enlace ni rutas recientes): formulario abierto para empezar; si no, solo la barra con la búsqueda
+    addEventListener("resize", syncBar);
     setCollapsed(state.mode === "line" || p.has("o") || !!r0);
     run({ initial: true });
   }
@@ -279,6 +280,13 @@
   function setCollapsed(c) {
     $("form").classList.toggle("collapsed", c);
     $("psum").setAttribute("aria-expanded", String(!c));
+    syncBar();
+  }
+  // Las cabeceras de hora se pegan debajo de la barra fija: su altura real (el subtítulo puede ocupar dos líneas).
+  function syncBar() {
+    const f = $("form");
+    const h = f.classList.contains("collapsed") ? Math.round(f.getBoundingClientRect().height) + 10 : 0;
+    document.body.style.setProperty("--bar-h", h + "px");
   }
 
   // Si "Desde las" sigue a la hora actual y no hay ningún viaje desplegado, actualiza la lista.
@@ -523,7 +531,7 @@
     }
     if ((el = t.closest("[data-line]"))) { state.line = el.dataset.line; state.tab = "trips"; save(); return render(); }
     if ((el = t.closest("[data-dir]"))) { state.dir = Number(el.dataset.dir); return render(); }
-    if ((el = t.closest("[data-xfer]"))) { $("transfers").checked = el.dataset.xfer === "1"; return run({ refresh: true }); }
+    if ((el = t.closest("[data-xfer]"))) { state.transfers = el.dataset.xfer === "1"; return run({ refresh: true }); }
     if (t.closest("[data-alltrans]")) { state.allTrans = !state.allTrans; return run({ refresh: true }); }
     if (t.closest("[data-holiday]")) { $("holiday").checked = true; return run({ refresh: true }); }
     if ((el = t.closest("[data-live-refresh]"))) {
@@ -592,7 +600,7 @@
     const q = {
       origin: Number($("o").value), dest: Number($("d").value),
       originStop: $("os").value, destStop: $("ds").value,
-      date: $("date").value, holiday: $("holiday").checked, transfers: $("transfers").checked,
+      date: $("date").value, holiday: $("holiday").checked, transfers: state.transfers,
       demand: $("demand").checked,
       from: $("time").value ? toMin($("time").value) : null, // hora mínima: sube en la siguiente parada del municipio si el bus ya pasó por la primera
     };
@@ -671,10 +679,11 @@
     } else {
       $("psum-route").textContent = `${$("o").selectedOptions[0].text} → ${$("d").selectedOptions[0].text}`;
       const stops = [stopName("os"), stopName("ds")].filter(Boolean).join(" → ");
-      $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops, !$("transfers").checked && "sin trasbordos"].filter(Boolean).join(" · ");
+      $("psum-when").textContent = [shortDay(date), $("time").value ? "desde " + $("time").value : "todo el día", stops, !state.transfers && "sin trasbordos"].filter(Boolean).join(" · ");
     }
     renderRecent();
     renderSaved();
+    syncBar();
   }
 
   const lineNames = (r) => r.legs.map((l) => eng.line(l.route).name);

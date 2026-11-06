@@ -941,17 +941,34 @@
     }
   }
 
-  // Sobre la lista de paradas: atenúa las que el bus ya dejó atrás y marca por dónde va.
+  // Etiqueta que el panel «escribe» en la parada de subida: lo que tardará el bus en llegar.
+  function boardingTag(r) {
+    if (!r || !r.ok || r.finished || r.passed) return "";
+    const m = r.eta == null ? null : Math.max(0, Math.round(r.eta));
+    if (m == null) return "";
+    if (r.notStarted) return m === 0 ? "sale ahora" : `sale en ${m} min`;
+    return m === 0 ? "llega ahora" : `llega en ${m} min`;
+  }
+
+  // Sobre la lista de paradas: atenúa las que el bus ya dejó atrás, marca por dónde va («Bus aquí») y
+  // pone en la parada de subida cuánto falta, para que el panel y la lista se lean como una sola cosa.
   function markStops(el, r) {
     const leg = el.closest(".leg");
     if (!leg) return;
     const ok = r && r.ok && !r.notStarted && r.busIndex != null;
     const bus = ok ? (r.finished ? Infinity : r.busIndex) : -1;
     const cur = ok && !r.finished ? Math.round(bus) : -1;
+    const tag = boardingTag(r);
+    const board = Number(el.dataset.live.split(":")[1]);
     for (const li of leg.querySelectorAll("ol:not(.alt-list) > li[data-p]")) {
       const p = Number(li.dataset.p);
       li.classList.toggle("is-past", ok && p < bus - 0.2 && p !== cur);
       li.classList.toggle("is-bus", p === cur);
+      const span = li.querySelector("span");
+      for (const old of li.querySelectorAll(".live-tag")) old.remove();
+      const add = (cls, text) => { const e = document.createElement("em"); e.className = `live-tag ${cls}`; e.textContent = text; span.append(e); };
+      if (p === cur) add("here", "Bus aquí");
+      if (p === board && tag && p !== cur) add("eta", tag);
     }
   }
 
@@ -1019,14 +1036,26 @@
     const li = eng.line(l.route);
     const hs = headsign(l.trip);
     const rows = [];
-    for (let p = l.i; p <= l.j; p++) {
+    const muniOf = (p) => data.stops[t[3][p]][1];
+    // Una parada de la lista. `sub` = cuelga de una cabecera de municipio (se omite el municipio en el nombre).
+    const stopRow = (p, sub) => {
       const end = p === l.i || p === l.j;
       const time = p === l.j ? t[4][p] : t[5][p];
       // solo informativo en paradas intermedias: en el origen y el destino de tu tramo siempre se puede subir/bajar
       const f = t[6].charCodeAt(p) - 48;
       const tag = !end && f ? `<em class="rtag" title="${["", "En esta parada solo se puede bajar", "En esta parada solo se puede subir", "En esta parada no suben ni bajan viajeros"][f]}">${["", "solo bajada", "solo subida", "sin viajeros"][f]}</em>` : "";
       const role = p === l.i ? `<em class="role role--on">Subes</em>` : p === l.j ? `<em class="role role--off">Bajas</em>` : "";
-      rows.push(`<li data-p="${p}" class="${end ? "end-stop" : ""}"><time>${clockText(time + l.shift)}</time><span>${esc(eng.stopMuni(t[3][p]))} · ${esc(eng.stopName(t[3][p]))}${role}${tag}</span></li>`);
+      const name = sub ? esc(eng.stopName(t[3][p])) : `<b class="mn">${esc(eng.stopMuni(t[3][p]))}</b> · ${esc(eng.stopName(t[3][p]))}`;
+      return `<li data-p="${p}" class="${[end ? "end-stop" : "", sub ? "sub" : ""].join(" ").trim()}"><time>${clockText(time + l.shift)}</time><span>${name}${role}${tag}</span></li>`;
+    };
+    // Paradas seguidas del mismo municipio se agrupan bajo su nombre; una sola parada va en una línea.
+    for (let p = l.i; p <= l.j;) {
+      let q = p;
+      while (q < l.j && muniOf(q + 1) === muniOf(p)) q++;
+      const group = q > p;
+      if (group) rows.push(`<li class="muni"><span>${esc(eng.stopMuni(t[3][p]))}</span></li>`);
+      for (let k = p; k <= q; k++) rows.push(stopRow(k, group));
+      p = q + 1;
     }
     // El buscador baja en la primera parada del municipio destino; el mismo bus puede seguir parando dentro de él.
     let more = "";
@@ -1048,10 +1077,12 @@
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";
     const live = liveHtml(l);
-    const acts = `<div class="leg-actions">${live.includes("data-live=") ? "" : rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
+    const hasLive = live.includes("data-live=");
+    const acts = `<div class="leg-actions">${hasLive ? "" : rt}<button type="button" data-map="${l.trip}:${l.i}:${l.j}">Mapa</button><button type="button" data-linefor="${l.route}" data-trip="${l.trip}">Horario de la línea</button></div><div class="tmap" hidden></div>`;
     const ai = data.agencyInfo && data.agencyInfo[li.agencyIdx];
     const op = ai ? `<p class="muted opinfo">${esc(li.agency)}${ai.phone ? ` · Tel. <a href="tel:${esc(ai.phone.replace(/[^\d+]/g, ""))}">${esc(ai.phone)}</a>` : ""}${safeUrl(ai.url) ? ` · <a href="${esc(safeUrl(ai.url))}" target="_blank" rel="noopener">web</a>` : ""}</p>` : "";
-    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${live}<ol>${rows.join("")}</ol>${more}${acts}${op}${buy}</div>`;
+    return `${gap}<div class="leg"><h3>${badge(li.name)} <span>${esc(longName(li))}</span>${hs ? `<small class="dir">→ ${esc(hs)}</small>` : ""}</h3>${li.demand ? demandNote : ""}${hasLive ? "" : live}
+      <div class="leg-card${hasLive ? " has-live" : ""}">${hasLive ? live : ""}<div class="stops"><ol>${rows.join("")}</ol>${more}</div><div class="leg-foot">${acts}</div></div>${op}${buy}</div>`;
   }
 
   function tripHtml(r, { maxDur, fastest, next, nowMin, i }) {
@@ -1076,8 +1107,9 @@
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
         <span class="track"${fastest ? ' title="El más rápido"' : ""}>${xpos == null ? "" : `<b class="xdot" style="--x:${xpos}%"></b>`}</span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
+      ${r.transfers ? `<div class="swap"><b>Cambio en ${esc(eng.stopMuni(r.legs[0].to))}</b><small>espera ${wait} min${r.walk ? ` · ~${r.walk} m a pie` : ""}</small></div>` : ""}
       <div class="end arr"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${next ? `<span class="tag next">Próximo</span>` : ""}${fastest ? `<span class="tag quick">Más rápido</span>` : ""}${r.transfers ? `<span class="tag xfer" title="Hay que cambiar de autobús: ${wait} min de espera">1 cambio en ${esc(eng.stopMuni(r.legs[0].to))}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
+      <div class="who"><span class="lines">${lines}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${next ? `<span class="tag next">Próximo</span>` : ""}${fastest ? `<span class="tag quick">Más rápido</span>` : ""}${r.transfers ? `<span class="tag xfer" title="Hay que cambiar de autobús: ${wait} min de espera">⇄ 1 cambio<span class="xplace"> en ${esc(eng.stopMuni(r.legs[0].to))}</span></span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
       <span class="chev" aria-hidden="true"></span>
       </summary><div class="detail">${detail}</div></details>`;
   }

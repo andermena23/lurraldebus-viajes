@@ -192,7 +192,6 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .trip::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bar, transparent); }
 .trip.fastest { --bar: var(--brand); --tdot: var(--brand); }
 .trip.demand { --bar: #d49a00; }
-.trip.xfer { --bar: repeating-linear-gradient(to bottom, var(--muted) 0 6px, transparent 6px 10px); }
 .trip.is-next { --bar: var(--accent); --tdot: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent), var(--shadow); }
 .trip:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); box-shadow: 0 6px 18px rgba(0, 60, 70, .10); transform: translateY(-1px); }
@@ -247,10 +246,10 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .detail li:first-child::after { top: calc(var(--pad) + var(--lh) / 2); }
 .detail li:last-child::after { bottom: calc(100% - var(--pad) - var(--lh) / 2); }
 .detail li:only-child::after { display: none; }
-.detail li::before { z-index: 1; left: calc(var(--axis) - 4px); top: calc(var(--pad) + var(--lh) / 2 - 4px);
+.detail li::before { z-index: 1; left: calc(var(--axis) + var(--ind, 0px) - 4px); top: calc(var(--pad) + var(--lh) / 2 - 4px);
   width: 8px; height: 8px; border-radius: 50%; background: var(--card); border: 2px solid var(--muted); box-sizing: border-box; }
 .detail li.end-stop { font-weight: 650; }
-.detail li.end-stop::before { left: calc(var(--axis) - 6px); top: calc(var(--pad) + var(--lh) / 2 - 6px);
+.detail li.end-stop::before { left: calc(var(--axis) + var(--ind, 0px) - 6px); top: calc(var(--pad) + var(--lh) / 2 - 6px);
   width: 12px; height: 12px; background: var(--accent); border: 3px solid var(--card);
   box-shadow: 0 0 0 1.5px var(--accent); }
 .detail li time { font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -261,7 +260,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 /* con tiempo real: lo que el bus ya dejó atrás se atenúa y se marca dónde va */
 .detail li.is-past { opacity: .5; }
 .detail li.is-past::after { background: var(--accent); opacity: .6; }
-.detail li.is-bus::before { left: calc(var(--axis) - 7px); top: calc(var(--pad) + var(--lh) / 2 - 7px); width: 14px; height: 14px;
+.detail li.is-bus::before { left: calc(var(--axis) + var(--ind, 0px) - 7px); top: calc(var(--pad) + var(--lh) / 2 - 7px); width: 14px; height: 14px;
   background: var(--good); border: 3px solid var(--card); box-shadow: 0 0 0 1.5px var(--good); animation: livepulse 2s ease-in-out infinite; }
 .transfer-note { margin: 12px 0 0; padding: 6px 10px; background: var(--warn-bg); color: var(--warn); border-radius: 8px; }
 
@@ -372,7 +371,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   /* tarjeta de viaje en móvil: línea de tiempo vertical.
      Fila 1 = líneas y etiquetas; fila 2 = salida; fila 3 = llegada. La duración va a la derecha. */
   .trip { margin-bottom: 12px; }
-  .trip > summary { grid-template-columns: auto 14px auto minmax(0, 1fr); grid-template-areas: "who who who who" "dclk . dstop dstop" "aclk . astop astop" ". . dur note";
+  .trip > summary { grid-template-columns: auto 14px auto minmax(0, 1fr); grid-template-areas: "who who who who" "dclk . dstop dstop" ". swap swap swap" "aclk . astop astop" ". . dur note";
     gap: 0 10px; padding: 14px 14px 14px 20px; align-items: start; }
   .end, .mid { display: contents; }
   .end.arr { text-align: left; }
@@ -381,6 +380,16 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .who .dir { flex: none; }
   .who .op { font-size: .78rem; line-height: 1.2; }
   .tag.xfer { max-width: none; }
+  .xplace { display: none; }
+  /* trasbordo: parada intermedia de la línea de tiempo; el hilo y el punto ámbar caen en la misma columna que los de las horas */
+  .trip.xfer .dep small { margin-bottom: 0; }
+  .trip > summary > .swap { display: block; grid-area: swap; position: relative; padding: 10px 0 10px 24px; }
+  .swap::before, .swap::after { content: ""; position: absolute; }
+  .swap::before { top: 0; bottom: 0; left: 6px; width: 2px; background: var(--line2); }
+  .swap::after { left: 2px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; box-sizing: border-box;
+    background: var(--warn-bg); border: 2px solid var(--warn); }
+  .swap b { display: block; font-size: .88rem; font-weight: 600; }
+  .swap small { display: block; color: var(--muted); font-size: .8rem; }
   .chev { position: absolute; top: 20px; right: 16px; }
   .trip[open] .chev { margin-top: 0; top: 24px; }
   .dep .clk { grid-area: dclk; } .dep small { grid-area: dstop; }
@@ -391,7 +400,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .dep small { margin-bottom: 16px; }
   .dur { grid-area: dur; justify-self: start; align-self: center; margin-top: 4px; font-size: .82rem; }
   .mid small { grid-area: note; justify-self: start; align-self: center; margin: 4px 0 0 10px; font-size: .8rem; white-space: nowrap; }
-  .mid small:empty { display: none; }
+  .mid small:empty, .trip.xfer .mid small { display: none; }
   .track { display: none; }
   /* hilo vertical entre los dos puntos (cada reloj dibuja su tramo; las filas no tienen hueco entre sí) */
   .clk::before, .clk::after { content: ""; position: absolute; }
@@ -448,7 +457,8 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 /* línea a demanda, sentido y restricciones de parada */
 .tag.demand { background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
 /* trasbordos mezclados con los directos: borde discontinuo + etiqueta para distinguirlos de un vistazo */
-.tag.xfer { background: transparent; color: var(--ink); border: 1px dashed var(--muted); white-space: normal; max-width: 100%; line-height: 1.25; }
+.tag.xfer { background: var(--chip); color: var(--ink); white-space: normal; max-width: 100%; line-height: 1.25; }
+.swap { display: none; }
 .dir { color: var(--ink); font-size: .8rem; font-weight: 600; }
 .detail h3 .dir { font-weight: 500; color: var(--muted); }
 .notice.demand { margin: 8px 0; }
@@ -471,8 +481,8 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .opinfo { margin: 10px 0 0; font-size: .8rem; }
 
 /* panel en vivo dentro del viaje desplegado */
-.live { margin: 12px 0 4px; padding: 14px; border: 1px solid var(--line); border-radius: 12px;
-  background: color-mix(in srgb, var(--chip) 24%, var(--card)); }
+/* El panel en vivo ya no es una caja aparte: es la cabecera (móvil) o la columna lateral (escritorio) del tramo. */
+.live { padding: 14px 16px; background: color-mix(in srgb, var(--accent) 6%, var(--card)); }
 .live.busy .live-body { opacity: .62; }
 .live-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .live-badge { display: inline-flex; align-items: center; gap: 6px; font-size: .7rem; font-weight: 700;
@@ -494,7 +504,10 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes livespin { to { transform: rotate(360deg); } }
 
-.live-hero { display: flex; align-items: center; gap: 14px; margin: 4px 0 2px; }
+.live-body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.live-body > * { margin: 0; }
+.live-body > .live-hero, .live-body > .live-headline, .live-body > .live-hero-sub, .live-body > .live-where, .live-body > .live-note, .live-body > .live-error { flex: 1 1 100%; }
+.live-hero { display: flex; align-items: center; gap: 14px; }
 .live-eta { display: inline-flex; align-items: baseline; gap: 4px; color: var(--accent); }
 .live-eta b { font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .live-eta small { font-size: .82rem; font-weight: 700; }
@@ -503,7 +516,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live-headline { margin: 2px 0 2px; font-size: 1.15rem; font-weight: 700; }
 .live-headline + .live-hero-sub { margin: 0 0 6px; }
 
-.live-delay { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 8px 0 4px; font-size: .84rem; }
+.live-delay { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: .84rem; }
 .live-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 999px;
   background: var(--chip); color: var(--ink); font-weight: 700; }
 .live-pill.good { background: var(--good-bg); color: var(--good); }
@@ -511,15 +524,15 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live-pill.muted { color: var(--muted); font-weight: 500; }
 .live-sched { color: var(--muted); }
 
-.live-occ { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: .84rem; color: var(--muted); }
+.live-occ { display: flex; align-items: center; gap: 6px; font-size: .84rem; color: var(--muted); }
 .live-occ b { color: var(--ink); }
 .live-occ-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
 .live-occ.mid .live-occ-dot { background: var(--accent); }
 .live-occ.high .live-occ-dot { background: var(--warn); }
 
-.live-where { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
+.live-where { padding-top: 10px; border-top: 1px solid var(--line); font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
 
-.live-note { margin: 10px 0 0; font-size: .72rem; color: var(--muted); }
+.live-note { font-size: .72rem; color: var(--muted); }
 .live-off { margin-top: 10px; }
 
 .live-error p { margin: 4px 0 10px; font-size: .85rem; }
@@ -582,3 +595,39 @@ details.notice[open] > summary { white-space: normal; }
   .lt tbody th { min-width: 8.5rem; max-width: 10rem; }
   .tmap { height: 240px; }
 }
+
+/* tramo: panel en vivo + paradas + acciones en una sola superficie */
+.leg-card { margin-top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.leg-card .live { border-bottom: 1px solid var(--line); }
+.stops { padding: 6px 16px 12px; }
+.stops ol:first-child { margin-top: 2px; }
+.leg-foot { padding: 10px 16px 14px; border-top: 1px solid var(--line); }
+.leg-foot .leg-actions { margin-top: 0; }
+.leg-foot .tmap { margin-top: 12px; }
+@media (min-width: 701px) {
+  /* escritorio: el panel es una columna a la izquierda de las paradas */
+  .leg-card.has-live { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+  .leg-card.has-live .live { grid-row: 1; border-bottom: 0; border-right: 1px solid var(--line); }
+  .leg-card.has-live .stops { grid-row: 1; padding-top: 10px; }
+  .leg-card.has-live .leg-foot { grid-column: 1 / -1; }
+}
+
+/* lo que el panel escribe en la lista */
+.live-tag { margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: .68rem; font-style: normal; font-weight: 700; white-space: nowrap; vertical-align: 1px; }
+.live-tag.eta { background: var(--accent); color: var(--accent-ink); }
+.live-tag.here { background: var(--good); color: #fff; }
+.detail li.is-bus { background: linear-gradient(to right, var(--good-bg), transparent 85%); border-radius: 8px; font-weight: 650; }
+.detail li.is-bus time { color: var(--ink); }
+
+/* paradas agrupadas por municipio: el hilo es la ruta; cada municipio es un nodo cuadrado y sus paradas cuelgan de él con una rama */
+.detail ol { --ind: 0px; }
+.detail li.muni { display: block; padding-left: 24px; }
+.detail li.muni span { font-weight: 700; font-size: .78rem; letter-spacing: .05em; text-transform: uppercase; color: var(--ink); }
+.detail li.muni::before { left: calc(var(--axis) - 5px); top: calc(var(--pad) + var(--lh) / 2 - 5px); width: 10px; height: 10px; border-radius: 3px;
+  background: var(--ink); border: 0; }
+.detail li.sub { --ind: 16px; --conn: linear-gradient(var(--line2), var(--line2));
+  padding-left: 40px; grid-template-columns: 3.1rem minmax(0, 1fr);
+  background: var(--conn) no-repeat calc(var(--axis) - 1px) calc(var(--pad) + var(--lh) / 2 - 1px) / calc(var(--ind) + 1px) 2px; }
+.detail li.sub.is-bus { background: var(--conn) no-repeat calc(var(--axis) - 1px) calc(var(--pad) + var(--lh) / 2 - 1px) / calc(var(--ind) + 1px) 2px,
+  linear-gradient(to right, var(--good-bg), transparent 85%); }
+.detail li .mn { font-weight: 650; }

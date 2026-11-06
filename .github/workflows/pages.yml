@@ -28,7 +28,9 @@ jobs:
       # En la ejecución diaria (o manual) se vuelven a bajar los GTFS; en un push se publica lo que hay.
       - name: Actualizar datos GTFS
         if: github.event_name != 'push'
-        run: python3 scripts/build_data.py
+        # Si los datos nuevos no pasan las comprobaciones (feed roto), se sigue publicando el network.json del repo
+        # en vez de dejar la web sin desplegar; el aviso queda en el resumen de la ejecución.
+        run: python3 scripts/build_data.py || echo "::warning::build_data.py falló: se publican los datos anteriores"
 
       - name: Tests
         run: |

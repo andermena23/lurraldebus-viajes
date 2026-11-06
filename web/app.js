@@ -1067,13 +1067,18 @@
     const hs = r.transfers ? "" : headsign(first.trip);
     const detail = r.legs.map((l, k) => legHtml(r, l, k)).join("") +
       `<p class="muted fine">Horario programado: las horas de las paradas intermedias son estimaciones del operador.</p>`;
-    return `<details class="trip${fastest ? " fastest" : ""}${demand ? " demand" : ""}${r.transfers ? " xfer" : ""}" style="--i:${Math.min(i || 0, 12)}"><summary>
-      <div class="end"><div class="clkrow"><b class="clk">${clock(r.dep)}</b>${next ? `<span class="tag next d">Próximo</span>` : ""}</div><small>${esc(eng.stopName(first.from))}</small></div>
+    // El trayecto (.track) mide lo largo que es el viaje respecto al más largo de la lista; en un trasbordo,
+    // un punto intermedio marca dónde se cambia de autobús.
+    const span = Math.max(30, Math.round((r.dur / maxDur) * 100));
+    const xpos = r.transfers ? Math.round(((r.legs[0].arr - r.dep) / r.dur) * 100) : null;
+    return `<details class="trip${fastest ? " fastest" : ""}${demand ? " demand" : ""}${r.transfers ? " xfer" : ""}${next ? " is-next" : ""}" style="--i:${Math.min(i || 0, 12)};--span:${span}%"><summary>
+      <div class="end dep"><b class="clk">${clock(r.dep)}</b><small>${esc(eng.stopName(first.from))}</small></div>
       <div class="mid"><span class="dur">${dur(r.dur)}</span>
-        <span class="track" title="${fastest ? "El más rápido" : ""}"><i style="width:${Math.max(8, Math.round((r.dur / maxDur) * 100))}%"></i></span>
+        <span class="track"${fastest ? ' title="El más rápido"' : ""}>${xpos == null ? "" : `<b class="xdot" style="--x:${xpos}%"></b>`}</span>
         <small${soon ? ' class="soon"' : ""}>${esc(note)}</small></div>
-      <div class="end r"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
-      <div class="who"><span class="lines">${lines}${next ? `<span class="tag next m">Próximo</span>` : ""}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${r.transfers ? `<span class="tag xfer" title="Hay que cambiar de autobús: ${wait} min de espera">1 cambio en ${esc(eng.stopMuni(r.legs[0].to))}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
+      <div class="end arr"><b class="clk">${clock(r.arr)}</b><small>${esc(eng.stopName(lastLeg.to))}</small></div>
+      <div class="who"><span class="lines">${lines}</span>${hs ? `<span class="dir">→ ${esc(hs)}</span>` : ""}${next ? `<span class="tag next">Próximo</span>` : ""}${fastest ? `<span class="tag quick">Más rápido</span>` : ""}${r.transfers ? `<span class="tag xfer" title="Hay que cambiar de autobús: ${wait} min de espera">1 cambio en ${esc(eng.stopMuni(r.legs[0].to))}</span>` : ""}${demand ? `<span class="tag demand" title="Hay que pedirlo por teléfono con antelación">A demanda</span>` : ""}${oneOp ? "" : `<span class="op">${esc(ops)}</span>`}</div>
+      <span class="chev" aria-hidden="true"></span>
       </summary><div class="detail">${detail}</div></details>`;
   }
 

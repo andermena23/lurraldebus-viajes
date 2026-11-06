@@ -75,6 +75,17 @@
         if (set.has(ids[i]) && (fl.charCodeAt(i) - 48) % 2 === 0) return i;
       return -1;
     }
+    // Parada de subida: la primera del conjunto; pero si se pide una hora mínima y el bus ya pasó por ella,
+    // la siguiente parada del mismo conjunto (p. ej. otra de Donostia) cuya salida sea >= minDep. Si no queda
+    // ninguna, se devuelve la primera (el viaje no cumple la hora y quien llama lo descarta).
+    function firstBoardFrom(t, shift, set, minDep) {
+      const i = firstBoard(t, set);
+      if (i < 0 || minDep == null || t[5][i] + shift >= minDep) return i;
+      const [, , , ids, , dep, fl] = t;
+      for (let k = i + 1; k < ids.length - 1; k++)
+        if (set.has(ids[k]) && (fl.charCodeAt(k) - 48) % 2 === 0 && dep[k] + shift >= minDep) return k;
+      return i;
+    }
     function firstAlight(t, set, after) {
       const [, , , ids, , , fl] = t;
       for (let j = after + 1; j < ids.length; j++)
@@ -118,14 +129,14 @@
       return r;
     }
 
-    function search({ origin, dest, originStop, destStop, date, holiday = false, holidayPrev = false, transfers = true }) {
+    function search({ origin, dest, originStop, destStop, date, holiday = false, holidayPrev = false, transfers = true, from = null }) {
       const O = stopSet(origin, originStop);
       const D = stopSet(dest, destStop);
       const active = activeTrips(date, holiday, holidayPrev);
       const direct = [];
       for (const { ti, shift } of active) {
         const t = trips[ti];
-        const i = firstBoard(t, O);
+        const i = firstBoardFrom(t, shift, O, from);
         if (i < 0) continue;
         const j = firstAlight(t, D, i);
         if (j < 0) continue;
@@ -135,12 +146,12 @@
       }
 
       let viaTransfer = [];
-      if (transfers && origin !== dest) viaTransfer = searchTransfers(active, O, D, direct);
+      if (transfers && origin !== dest) viaTransfer = searchTransfers(active, O, D, direct, from);
       const byDep = (a, b) => a.dep - b.dep || a.arr - b.arr;
       return { direct: direct.sort(byDep), transfer: viaTransfer.sort(byDep) };
     }
 
-    function searchTransfers(active, O, D, direct) {
+    function searchTransfers(active, O, D, direct, from) {
       // índice de salidas de leg2: parada -> [{ti, shift, pos, dep, arr}] ordenado por salida
       const index = new Map();
       for (const { ti, shift } of active) {
@@ -165,7 +176,7 @@
       const bestByLeg2 = new Map(); // leg2 -> mejor leg1 (sale lo más tarde posible)
       for (const { ti, shift } of active) {
         const t = trips[ti];
-        const i = firstBoard(t, O);
+        const i = firstBoardFrom(t, shift, O, from);
         if (i < 0 || t[5][i] + shift < 0) continue;
         if (firstAlight(t, D, i) >= 0) continue; // ya es directo
         let best = null;

@@ -556,6 +556,7 @@
       originStop: $("os").value, destStop: $("ds").value,
       date: $("date").value, holiday: $("holiday").checked, transfers: $("transfers").checked,
       demand: $("demand").checked,
+      from: $("time").value ? toMin($("time").value) : null, // hora mínima: sube en la siguiente parada del municipio si el bus ya pasó por la primera
     };
     if (!q.date) return;
     q.holidayPrev = prevHoliday(q.date);

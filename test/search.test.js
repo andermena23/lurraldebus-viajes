@@ -72,3 +72,39 @@ console.log("líneas: UK01", day.length, "viajes en", tables.map((t) => `${t.fro
 const anyHoliday = eng.search({ origin: m("Donostia"), dest: m("Irun"), date: FRI, holidayPrev: true });
 assert(anyHoliday.direct.length > 0);
 console.log("OK 2");
+
+// Hora mínima sin parada elegida: un bus que ya pasó por su primera parada del municipio de origen
+// sigue valiendo si todavía para en otra del mismo municipio (sube en la siguiente, con su hora).
+{
+  const O = m("Donostia"), Dm = m("Tolosa");
+  const all = eng.search({ origin: O, dest: Dm, date: FRI, transfers: false });
+  let found = null;
+  for (const r of all.direct) {
+    const l = r.legs[0], t = data.trips[l.trip];
+    for (let k = l.i + 1; k < l.j; k++) {
+      if (data.stops[t[3][k]][1] === O && (t[6].charCodeAt(k) - 48) % 2 === 0 && t[5][k] + l.shift > r.dep) { found = { r, l, t, k, dep: t[5][k] + l.shift }; break; }
+    }
+    if (found) break;
+  }
+  assert(found, "debe haber algún viaje con varias paradas en Donostia");
+  const same = (a, b) => a.legs[0].trip === b.legs[0].trip && a.legs[0].shift === b.legs[0].shift;
+
+  // pedimos una hora posterior a su primera parada y anterior (o igual) a la siguiente: sube en la siguiente
+  const mid = eng.search({ origin: O, dest: Dm, date: FRI, transfers: false, from: found.dep });
+  const moved = mid.direct.find((x) => same(x, found.r));
+  assert(moved, "el viaje no debe desaparecer");
+  assert.strictEqual(moved.legs[0].i, found.k);
+  assert.strictEqual(moved.dep, found.dep);
+  assert(moved.dep >= found.dep && moved.dur === moved.arr - moved.dep && moved.dur < found.r.dur);
+  console.log("sube en la siguiente parada:", f(found.r.dep), "→", f(moved.dep), data.stops[found.t[3][found.k]][0]);
+
+  // el conjunto de viajes del día no cambia (el resumen y «Comparar» usan el día completo)
+  assert.strictEqual(mid.direct.length, all.direct.length);
+  // sin hora mínima, todo igual que antes
+  assert.deepStrictEqual(eng.search({ origin: O, dest: Dm, date: FRI, transfers: false, from: null }).direct.map((x) => x.dep), all.direct.map((x) => x.dep));
+  // con una parada concreta no hay «siguiente parada»: si el bus ya pasó por ella, no vale
+  const first = String(found.l.from);
+  const pinned = eng.search({ origin: O, dest: Dm, originStop: first, date: FRI, transfers: false, from: found.dep });
+  const p = pinned.direct.find((x) => same(x, found.r));
+  assert(!p || p.dep < found.dep, "con parada elegida no se re-embarca en otra");
+}

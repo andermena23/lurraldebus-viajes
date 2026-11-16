@@ -191,6 +191,7 @@
       if (r.minutes == null || lineKey(r.line) !== L) continue;
       const delay = diff(atMin + r.minutes, sched);
       if (Math.abs(delay) > tol) continue;
+      if (opts.minDelay != null && delay < opts.minDelay) continue;
       const score = Math.abs(delay) - dirScore(r, refs) * 3;
       if (!best || score < best.score) best = { ...r, delay, score };
     }
@@ -202,6 +203,20 @@
     const cache = new Map(); // "proxy|muni:stop" -> { at, value }
     const inflight = new Map();
     const f = opts.fetch || (typeof fetch !== "undefined" ? fetch : null);
+
+    // Fracción de paradas-visita con tablero oficial, por ruta. Una línea solo merece panel en vivo si casi todas sus paradas lo
+    // tienen: las urbanas (Irunbus, Lasarte-Oria urbano, Oñati Herribusa) comparten algunas paradas con tablero, pero sus autobuses
+    // no aparecen en él, y el panel acabaría sin datos. Las de Pesa al aeropuerto (DO04, DG05D) rondan 0,67-0,69.
+    const MIN_BOARD_SHARE = 0.6;
+    const share = data.routes.map(() => [0, 0]); // [con tablero, total]
+    for (const t of data.trips) {
+      const c = share[t[0]];
+      for (const si of t[3]) { c[1]++; if (data.stops[si][5]) c[0]++; }
+    }
+    const lineHasLive = (ri) => {
+      const c = share[ri], r = data.routes[ri];
+      return !!c && !!r && r[4] !== 1 && c[1] > 0 && c[0] / c[1] >= MIN_BOARD_SHARE;
+    };
 
     async function getBoard(base, si, signal) {
       const st = data.stops[si];
@@ -231,7 +246,9 @@
           const html = await r.text();
           const ts = Number(r.headers.get("X-RT-Time")) || nowTs;
           const srv = Number(r.headers.get("X-RT-Now")) || nowTs;
-          return { rows: parseBillboard(html), ts, nowTs: srv, atMin: madridMin(ts) };
+          // skew: desfase reloj del servidor - reloj del dispositivo al recibir la respuesta (0 si falta la cabecera, porque entonces
+          // srv cae al reloj local). Sirve para comparar `ts` (hora del servidor) con Date.now() sin fiarse del reloj del móvil.
+          return { rows: parseBillboard(html), ts, nowTs: srv, atMin: madridMin(ts), skew: srv - nowTs };
         } finally {
           if (timer) clearTimeout(timer);
           if (signal && ctrl) signal.removeEventListener("abort", onAbort);
@@ -253,6 +270,10 @@
       const nowFn = typeof o.now === "function" ? o.now : () => (o.now == null ? Date.now() : o.now);
       const date = o.date || madridDate(nowFn());
       if (date !== madridDate(nowFn())) return { ok: false, reason: "solo-hoy" };
+      // Todo el cálculo de tiempos es lineal sobre minutos del día de hoy en Madrid (nowMin de 0 a 1439) y los horarios del
+      // viaje (at() ya incluye shift: ayer cruzando medianoche da valores negativos o de 0 a pocas decenas, hoy puede pasar de 1440).
+      // Límite asumido: un viaje de hoy con tiempos >= 1440 consultado pasada la medianoche ya no es «hoy», y se queda en
+      // «solo-hoy». El mismo viaje aparecería entonces como viaje de ayer (shift -1440) al buscar la nueva fecha.
 
       const t = data.trips[leg.trip];
       if (!t) return { ok: false, reason: "sin-datos" };
@@ -282,30 +303,47 @@
       }
 
       const nowMin = bI.atMin;
-      const relNow = diff(nowMin, start);
-      if (relNow < -1) {
-        return {
-          ok: true, source: "horario", updatedAt: bI.ts, estimated: true, notStarted: true,
-          eta: diff(at(leg.i), nowMin), etaClock: clockAt(bI.nowTs + diff(at(leg.i), nowMin) * 60000),
-          delay: null, occupancy: null, progress: 0, busIndex: start, passed: false, atStop: false,
-        };
-      }
+      const relNow = nowMin - start; // lineal, no circular: un viaje de las 21:00 visto a las 07:40 está sin empezar, no «terminado»
+      const skew = bI.skew || 0;
+      const stopRef = (p) => p == null ? null : {
+        index: p,
+        name: data.stops[t[3][p]][0],
+        muni: data.munis[data.stops[t[3][p]][1]],
+      };
+
       if (relNow > dur + 90) {
         return {
-          ok: true, source: "horario", updatedAt: bI.ts, estimated: true, finished: true,
+          ok: true, source: "horario", etaSource: "horario", updatedAt: bI.ts, skew, estimated: true, finished: true,
           eta: null, etaClock: null, delay: null, occupancy: null, progress: 1, busIndex: end,
           passed: true, atStop: false,
         };
       }
 
-      const rowI = matchRow(bI.rows, route, at(leg.i), nowMin, { headsign, refs });
-      const delay = rowI ? rowI.delay : 0;
+      // La fila del tablero en la parada de subida decide si hay dato en vivo, también antes de la salida. Un bus que aún no ha
+      // salido no puede ir adelantado: con más de 2 min de adelanto la fila es de otro servicio (el anterior de la línea) y se ignora.
+      const beforeStart = relNow < -1;
+      // minDelay descarta esas filas antes de elegir, para que otra fila válida (el bus correcto) pueda ganar.
+      const rowI = matchRow(bI.rows, route, at(leg.i), nowMin, { headsign, refs, minDelay: beforeStart ? -2 : null });
 
-      // Posición esperada según el horario + el retraso medido en la parada de subida.
-      const target = nowMin - delay;
-      const relTarget = mod(target - start);
-      let expect = 0;
-      for (let p = 0; p < n; p++) if (at(p) - start <= relTarget) expect = p;
+      if (beforeStart && !rowI) {
+        // Sin fila: lo único que hay es el horario (cuenta atrás programada, no es dato en vivo ni hay posición).
+        const sched = at(leg.i) - nowMin;
+        return {
+          ok: true, source: "horario", etaSource: "horario", updatedAt: bI.ts, skew, estimated: true, notStarted: true,
+          eta: sched, etaClock: clockAt(bI.nowTs + sched * 60000),
+          delay: null, occupancy: null, progress: null, busIndex: null, segFrom: null, segTo: null, passed: false, atStop: false,
+        };
+      }
+
+      // Posición esperada según el horario + el retraso medido (antes de la salida, relTarget < 0 y expect = 0).
+      const timeline = (d) => {
+        const relTarget = nowMin - d - start;
+        let expect = 0;
+        for (let p = 0; p < n; p++) if (at(p) - start <= relTarget) expect = p;
+        return { relTarget, expect };
+      };
+      let delay = rowI ? rowI.delay : 0;
+      let { relTarget, expect } = timeline(delay);
 
       // Consultamos una ventana alrededor de la posición esperada y la parada de subida.
       const want = new Set([leg.i]);
@@ -318,62 +356,91 @@
         try { boards.set(p, await getBoard(base, t[3][p], o.signal)); } catch (e) {}
       }));
 
-      const cands = [];
+      // Filas casadas en las paradas vecinas.
+      let near = [];
       for (const [p, b] of boards) {
-        if (!b.rows || !b.rows.length) continue;
-        const row = p === leg.i ? rowI : matchRow(b.rows, route, at(p), b.atMin, { headsign, refs });
-        if (!row) continue;
+        if (p === leg.i || !b.rows || !b.rows.length) continue;
+        const row = matchRow(b.rows, route, at(p), b.atMin, { headsign, refs });
+        if (row) near.push({ p, b, row });
+      }
+      let etaSource = rowI ? "parada" : "horario";
+      if (rowI) {
         // Si el retraso no cuadra con el de la parada de subida, probablemente sea otro bus.
-        if (rowI && p !== leg.i && Math.abs(row.delay - rowI.delay) > DELAY_TOL) continue;
-        const eta = (b.ts + row.minutes * 60000 - b.nowTs) / 60000;
-        cands.push({ p, b, row, eta, delay: row.delay });
+        near = near.filter((c) => Math.abs(c.row.delay - rowI.delay) <= DELAY_TOL);
+      } else if (near.length) {
+        // Sin fila en tu parada no hay retraso de referencia: nos quedamos con el de la parada más cercana a la de subida
+        // (a igual distancia, la anterior).
+        const ref = near.reduce((a, c) => {
+          const da = Math.abs(a.p - leg.i), dc = Math.abs(c.p - leg.i);
+          return dc < da || (dc === da && c.p < a.p) ? c : a;
+        });
+        // Si las vecinas no cuadran entre sí (retrasos que difieren más de DELAY_TOL) son autobuses distintos y no sabemos
+        // cuál es el tuyo: no se afirma ETA ni posición (queda noData).
+        const delays = near.map((c) => c.row.delay);
+        if (Math.max(...delays) - Math.min(...delays) > DELAY_TOL) {
+          near = [];
+        } else {
+          delay = ref.row.delay;
+          etaSource = "vecinas";
+          ({ relTarget, expect } = timeline(delay));
+        }
+      }
+
+      const cands = [];
+      if (rowI) cands.push({ p: leg.i, row: rowI, eta: (bI.ts + rowI.minutes * 60000 - bI.nowTs) / 60000, delay: rowI.delay });
+      for (const { p, b, row } of near) cands.push({ p, row, eta: (b.ts + row.minutes * 60000 - b.nowTs) / 60000, delay: row.delay });
+
+      // Ni fila en tu parada ni en las vecinas: no sabemos nada del bus. No se afirma que haya pasado ni dónde está;
+      // el horario solo se enseña como horario.
+      if (!cands.length) {
+        const sched = at(leg.i) - nowMin;
+        return {
+          ok: true, source: "horario", etaSource: "horario", noData: true, estimated: true, updatedAt: bI.ts, skew,
+          eta: sched, etaClock: clockAt(bI.nowTs + sched * 60000),
+          passed: false, atStop: false, notStarted: false, finished: false,
+          delay: null, occupancy: null, line: route, direction: "",
+          nextIndex: null, nextEta: null, next: null, segFrom: null, segTo: null, busIndex: null, progress: null,
+        };
       }
 
       const upcoming = cands.filter((c) => c.eta >= -0.6).sort((a, b) => a.eta - b.eta);
       let next = upcoming[0] || null;
-      let prevIdx, nextIdx, frac, atStop = false, estimated = !next;
+      let prevIdx, nextIdx, frac, estimated = !next;
 
       if (next) {
         nextIdx = next.p;
         prevIdx = Math.max(0, nextIdx - 1);
         const segDur = Math.max(1, at(nextIdx) - at(prevIdx));
         frac = next.eta <= 0.6 ? 1 : clamp(1 - next.eta / segDur, 0, 1);
-        atStop = next.eta <= 0.6;
       } else {
-        // Sin confirmación en el tablero: posición teórica según horario + retraso.
+        // Hay filas pero todas ya pasadas: posición teórica según horario + retraso.
         prevIdx = clamp(expect, 0, end);
         nextIdx = Math.min(end, prevIdx + 1);
         const segDur = Math.max(1, at(nextIdx) - at(prevIdx));
         frac = clamp((relTarget - (at(prevIdx) - start)) / segDur, 0, 1);
-        next = null;
       }
 
       const busIndex = prevIdx + frac;
       const span = Math.max(1, leg.j - leg.i);
       const progress = clamp((busIndex - leg.i) / span, 0, 1);
 
-      let etaI = null;
-      if (rowI) etaI = (bI.ts + rowI.minutes * 60000 - bI.nowTs) / 60000;
-      else etaI = delay + diff(at(leg.i), nowMin);
+      // Con fila en tu parada, su ETA; si no, horario + retraso de las vecinas (etaSource "vecinas").
+      const etaI = rowI ? cands[0].eta : delay + (at(leg.i) - nowMin);
 
-      const passed = etaI != null && etaI < -0.6;
-      const atI = etaI != null && etaI <= 0.6 && etaI >= -0.6;
-      const liveDelay = rowI ? rowI.delay : (cands.length ? cands[0].delay : null);
-      const occ = rowI ? rowI.occ : (next ? next.row.occ : (cands[0] ? cands[0].row.occ : null));
-
-      const stopRef = (p) => p == null ? null : {
-        index: p,
-        name: data.stops[t[3][p]][0],
-        muni: data.munis[data.stops[t[3][p]][1]],
-      };
+      const passed = etaI < -0.6;
+      const atI = etaI <= 0.6 && etaI >= -0.6;
+      const liveDelay = delay;
+      const occ = rowI ? rowI.occ : (next ? next.row.occ : cands[0].row.occ);
 
       return {
         ok: true,
-        source: rowI || cands.length ? "vivo" : "horario",
+        source: "vivo",
+        etaSource,
         estimated,
         updatedAt: bI.ts,
+        skew,
         eta: etaI,
-        etaClock: etaI != null ? clockAt(bI.nowTs + etaI * 60000) : null,
+        etaClock: clockAt(bI.nowTs + etaI * 60000),
         passed,
         atStop: atI,
         notStarted: false,
@@ -383,16 +450,18 @@
         line: route,
         direction: rowI ? rowI.dir : (next ? next.row.dir : ""),
         nextIndex: nextIdx,
-        nextEta: next ? Math.max(0, next.eta) : Math.max(0, diff(at(nextIdx), nowMin)),
+        nextEta: next ? Math.max(0, next.eta) : Math.max(0, at(nextIdx) - nowMin),
         next: stopRef(nextIdx),
-        segFrom: stopRef(prevIdx),
-        segTo: stopRef(nextIdx),
-        busIndex,
-        progress,
+        // Antes de la salida (con fila en tu parada) el dato es la ETA, pero no hay posición que dar.
+        beforeStart,
+        segFrom: beforeStart ? null : stopRef(prevIdx),
+        segTo: beforeStart ? null : stopRef(nextIdx),
+        busIndex: beforeStart ? null : busIndex,
+        progress: beforeStart ? null : progress,
       };
     }
 
-    return { live, parseBillboard, matchRow, getBoard, active: available };
+    return { live, parseBillboard, matchRow, getBoard, lineHasLive, active: available };
   }
 
   return {

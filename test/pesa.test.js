@@ -32,9 +32,28 @@ for (const r of res.direct) {
   assert.strictEqual(P.stopFor(eng.stopMuni(l.to), eng.stopName(l.to)).name, "BILBAO");
 }
 
-// Cobertura (solo aviso: los datos cambian cada día y no debe bloquear la publicación)
+// Regla de compra: línea con venta online, no a demanda y con dos paradas distintas en Pesa
+const buy = (line, a, b, demand) => P.canBuy({ line, demand: !!demand, from: { muni: a[0], stop: a[1] }, to: { muni: b[0], stop: b[1] } });
+const ok = buy("DO01", ["Donostia", "Donostiako Autobus Geltokia"], ["Bilbao", "Termibus"]);
+assert.deepStrictEqual([ok.from.name, ok.to.name], ["DONOSTIA-SAN SEBASTIAN", "BILBAO"]);
+assert(buy(" do01 ", ["Donostia", "Geltokia"], ["Bilbao", "Termibus"]), "la línea se compara sin mayúsculas ni espacios");
+assert.strictEqual(buy("DG10", ["Arrasate", "Geltokia"], ["Bergara", "Geltokia"]), null); // comarcal: sin venta online
+assert.strictEqual(buy("DG20E", ["Bergara", "Geltokia"], ["Elgeta", "Plaza"], true), null); // a demanda
+assert.strictEqual(buy("DO01", ["Donostia", "Geltokia"], ["Bilbao", "Termibus"], true), null); // a demanda aunque la línea esté en la lista
+assert.strictEqual(buy("DG01", ["Arrasate", "Geltokia"], ["Legazpi", "Geltokia"]), null); // línea con venta, pero Legazpi no está en Pesa
+assert.strictEqual(buy("DG01", ["Zumarraga", "Geltokia"], ["Urretxu", "Herriko Plaza"]), null); // las dos caen en ZUMARRAGA-URRETXU
+assert.strictEqual(buy("DG01", ["Arrasate", "Geltokia"], ["Bilbao", "Termibus"]).from.name, "ARRASATE-MONDRAGON");
+
+// Cobertura (solo aviso: los datos cambian cada día y no debe bloquear la publicación): tramos de líneas con venta online
+// para los que Pesa no tiene alguna de las paradas, y por tanto no se ofrecería el botón de compra
 const pesa = data.agencies.indexOf("Pesa (Debagoiena)");
+const falta = P.LINES.filter((l) => !data.routes.some((r) => r[0] === l && r[3] === pesa));
+if (falta.length) console.log("AVISO: líneas de la lista de venta online que ya no existen en los datos de Pesa:", falta.join(", "));
 const sin = new Set();
-for (const t of data.trips) if (data.routes[t[0]][3] === pesa) for (const s of t[3]) if (!P.stopFor(eng.stopMuni(s), eng.stopName(s))) sin.add(eng.stopMuni(s));
-if (sin.size) console.log("AVISO: municipios de Pesa sin equivalente en su web (el botón abre Pesa sin rellenar):", [...sin].join(", "));
+for (const t of data.trips) {
+  const r = data.routes[t[0]];
+  if (r[3] !== pesa || r[4] === 1 || !P.LINES.includes(r[0])) continue;
+  for (const s of t[3]) if (!P.stopFor(eng.stopMuni(s), eng.stopName(s))) sin.add(`${r[0]}:${eng.stopMuni(s)}`);
+}
+if (sin.size) console.log("AVISO: paradas de líneas con venta online sin equivalente en Pesa (no se ofrece comprar desde/hacia ellas):", [...sin].join(", "));
 console.log("OK pesa");

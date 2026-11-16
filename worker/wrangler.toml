@@ -8,5 +8,5 @@ compatibility_date = "2026-10-01"
 
 [vars]
 # Orígenes que pueden llamar al proxy: "*" para cualquiera, o una lista separada por
-# comas con tus orígenes concretos, p. ej. "https://andermena23.github.io,http://localhost:8000"
-ALLOW_ORIGIN = "*"
+# comas con tus orígenes concretos (la web publicada y el servidor local de desarrollo).
+ALLOW_ORIGIN = "https://andermena23.github.io,http://localhost:8000,http://127.0.0.1:8000"

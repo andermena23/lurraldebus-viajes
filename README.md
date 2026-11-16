@@ -44,12 +44,16 @@ bajada** y, en el último tramo, las otras paradas del municipio destino por las
 - **Avisos oficiales** (paradas suprimidas...) en los viajes de las líneas afectadas.
 - **Líneas a demanda** (código acabado en E: TO22E, GO21E...): marcadas como «A demanda» con el teléfono y la antelación
   necesarios, y excluidas de «Próximo». Se pueden ocultar con el filtro *A demanda*.
-- **Tiempo real** al desplegar un viaje de hoy (ver [Tiempo real](#tiempo-real)), además del botón «Tiempo real» que abre
-  lurraldebus.eus en esa parada.
-- **Comprar billetes**: en los tramos de Pesa (largo recorrido), «Comprar en Avanza» copia tu número de MUGI (se guarda
-  en el navegador desde el engranaje de Ajustes) y abre la web de venta, indicando origen, destino y fecha con los
-  nombres de Pesa (p. ej. San Prudentzio se compra desde San Prudentzio, no desde Arrasate). Pesa no admite rellenar el
-  viaje desde fuera (rechaza los POST de otras webs y no acepta el viaje en la URL), así que el resto se elige a mano.
+- **Tiempo real** al desplegar un viaje de hoy en líneas que el tablero oficial cubre (ver [Tiempo real](#tiempo-real)),
+  además del botón «Tiempo real» que abre lurraldebus.eus en esa parada.
+- **Comprar billetes**: en los tramos de Pesa (largo recorrido) con venta online, «Comprar en Avanza» copia tu número de
+  MUGI (se guarda en el navegador desde el engranaje de Ajustes) y abre la web de venta, indicando origen, destino y
+  fecha con los nombres de Pesa (p. ej. San Prudentzio se compra desde San Prudentzio, no desde Arrasate). El botón solo
+  sale si la línea está en la lista de `web/pesa.js` (la deducida del formulario de Pesa: DO01-04, DG01, DG02, DG05, DG05A,
+  DG05D, DG07 y DG12; pendiente de confirmar en online.pesa.net), no es a demanda, origen y destino existen en Pesa y son
+  paradas distintas (Zumarraga→Urretxu es la misma), y el viaje no ha salido ya. Las líneas comarcales, a demanda y
+  nocturnas no se venden ahí. Pesa no admite rellenar el viaje desde fuera (rechaza los POST de otras webs y no acepta el
+  viaje en la URL), así que el resto se elige a mano.
 
 ### Comparar y consultar líneas
 
@@ -127,14 +131,34 @@ GitHub Pages. Para eso está el **Cloudflare Worker** de `worker/`:
 | `GET /health` | Comprueba que está desplegado. |
 | `GET /board?muni=<idMunicipio>&stop=<idParada>` | Reenvía la consulta y devuelve solo la tabla de llegadas. |
 
-- Cachea 15 s en memoria, para no golpear al servidor oficial si varios clientes miran la misma parada.
+- Cachea 15 s en memoria, para no golpear al servidor oficial si varios clientes miran la misma parada. Si la petición
+  fresca falla, sirve la última respuesta buena solo si tiene menos de 90 s; si no, devuelve 502.
+- `ALLOW_ORIGIN` (`worker/wrangler.toml`) limita qué navegadores pueden **leer** la respuesta (la web publicada y
+  `localhost:8000` / `127.0.0.1:8000`); no es una protección de acceso, `curl` puede usar el proxy igualmente. Quien
+  despliegue su propio Worker con otro dominio debe editar esa lista.
 - Las cabeceras `X-RT-Time` / `X-RT-Now` indican a qué instante corresponden los minutos, sin depender del reloj del
   móvil.
 
 `web/realtime.js` parsea la tabla, casa cada fila con el viaje del horario (línea + hora prevista + sentido) y consulta
-unas cuantas paradas alrededor de la posición esperada para estimar el tramo actual. El panel «EN VIVO» muestra los
-minutos hasta tu parada, el retraso, la ocupación y la posición aproximada («ahora entre X e Y», con barra de progreso).
-Aparece al desplegar un viaje de hoy y se refresca cada 30 s solo si el viaje sigue abierto y la pestaña está visible.
+unas cuantas paradas alrededor de la posición esperada para estimar el tramo actual. El tablero solo da llegadas por
+parada, así que el panel **solo dice «EN VIVO» cuando hay datos del tablero**; nace neutro («TIEMPO REAL», consultando) y
+según el resultado muestra:
+
+- **EN VIVO**: minutos hasta tu parada, retraso, ocupación y posición aproximada («ahora entre X e Y», con barra de
+  progreso). Si el tablero de tu parada no trae el bus pero sí el de paradas vecinas, la hora en tu parada se estima con el
+  retraso medido allí (el de la parada más cercana) y la nota lo dice. Si esas paradas vecinas no cuadran entre sí (otros
+  autobuses de la misma línea), no se afirma nada y sale «sin tiempo real». Si el bus aún no ha salido pero ya aparece
+  en tu parada, se muestra su hora, sin posición («Aún no ha salido de X»).
+- **Sin tiempo real para este autobús**: ninguna fila en ningún tablero. No se afirma que haya pasado ni dónde está; solo
+  la hora programada y el botón de la web oficial.
+- **Aún no ha salido**: línea compacta con la salida programada, hasta que el bus aparece en el tablero de tu parada
+  (un bus sin salir que aparece con más de 2 min de adelanto se ignora: es el anterior de la línea).
+
+El panel solo se pinta en líneas cuyo tablero cubre al menos el 60 % de sus paradas y que no son a demanda: las urbanas
+(Irunbus, Lasarte-Oria urbano, Oñati Herribusa) comparten algunas paradas con tablero, pero sus autobuses no salen en él.
+En las demás queda el botón «Tiempo real» de la web oficial. «hace X» se calcula con la hora del servidor (`X-RT-Time`),
+corrigiendo el desfase con el reloj del dispositivo. Aparece al desplegar un viaje de hoy y se refresca cada 30 s solo si
+el viaje sigue abierto y la pestaña está visible.
 
 ### Configurar el proxy
 
@@ -216,10 +240,16 @@ falta abrir la app dos veces para ver los datos nuevos.
 
 - **No hay posición GPS pública.** Lurraldebus solo publica llegadas por parada; la posición es una estimación y puede
   fallar en líneas con varios autobuses de la misma línea cerca.
-- Solo se muestra para viajes de hoy y paradas con tablero oficial. Si la web oficial cambia su HTML, el panel cae al
-  horario programado o muestra «sin datos».
+- Solo se muestra para viajes de hoy, paradas con tablero oficial y líneas cuyo tablero las cubre (≥ 60 % de paradas, no a
+  demanda). Si la web oficial cambia su HTML, el panel pasa a «sin tiempo real para este autobús» o «sin datos».
+- Sin fila del bus en tu parada, la hora se deduce del retraso de paradas cercanas (se avisa en el panel), y si no hay
+  ninguna fila, o las de las vecinas no cuadran entre sí, no se afirma ni que el bus haya pasado ni dónde está.
+- Un viaje de hoy con horarios pasada la medianoche (>24:00) no tiene panel en vivo una vez cambia el día: el tiempo real
+  solo existe para «hoy».
 - El retraso se deduce de casar la hora prevista del tablero con la programada; un autobús muy retrasado puede
   confundirse con el siguiente de la misma línea.
+- Si el proxy no puede consultar la web oficial, sirve la última respuesta solo durante 90 s; después el panel muestra un
+  error en vez de datos viejos.
 
 ### Tarifas y mapa
 

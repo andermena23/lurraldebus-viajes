@@ -21,11 +21,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UP = "https://lurraldebus.eus"
 UA = "Mozilla/5.0 lurraldebus-viajes-dev"
+TTL = 15  # s de caché por parada (como el Worker)
+STALE = 90  # s: antigüedad máxima de la última respuesta buena si falla la petición fresca
+CACHE = {}  # "muni:stop" -> (instante en ms, html)
 
 
 def extract_table(html):
     m = re.search(r'<div class="live-lines-content">.*?</table>', html, re.S | re.I)
-    return m.group(0) if m else html
+    # sin tabla (la web cambió o devolvió otra cosa): vacío, que el cliente lo trata como un tablero sin filas
+    return m.group(0) if m else ""
+
+
+def fetch_board(muni, stop):
+    """Tablero de una parada como (instante en ms, html). Caché de TTL s; si la petición falla, sirve la última
+    respuesta buena solo si tiene menos de STALE s (una más vieja daría ETAs negativas); si no, propaga el error."""
+    key = f"{muni}:{stop}"
+    hit = CACHE.get(key)
+    if hit and time.time() * 1000 - hit[0] < TTL * 1000:
+        return hit
+    url = f"{UP}/real/result/{urllib.parse.quote(muni)}/{urllib.parse.quote(stop)}"
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "es"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            html = r.read().decode("utf-8", "replace")
+    except Exception:
+        if hit and time.time() * 1000 - hit[0] < STALE * 1000:
+            return hit
+        raise
+    CACHE[key] = (int(time.time() * 1000), extract_table(html))
+    return CACHE[key]
 
 
 class Proxy(BaseHTTPRequestHandler):
@@ -66,17 +90,13 @@ class Proxy(BaseHTTPRequestHandler):
             self.send_text("municipio o parada no válidos", 400, "text/plain; charset=utf-8")
             return
 
-        url = f"{UP}/real/result/{urllib.parse.quote(muni)}/{urllib.parse.quote(stop)}"
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "es"})
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                html = r.read().decode("utf-8", "replace")
+            ts, table = fetch_board(muni, stop)
         except Exception as e:
             self.send_text(f"la web oficial no responde: {e}", 502, "text/plain; charset=utf-8")
             return
 
-        now = int(time.time() * 1000)
-        self.send_text(extract_table(html), extra={"X-RT-Time": str(now), "X-RT-Now": str(now)})
+        self.send_text(table, extra={"X-RT-Time": str(ts), "X-RT-Now": str(int(time.time() * 1000))})
 
     def log_message(self, fmt, *args):
         print(f"proxy: {fmt % args}", file=sys.stderr)

@@ -14,7 +14,12 @@ Lleva caché en memoria de 15 s para no golpear al servidor oficial si varios
 clientes consultan la misma parada a la vez. Las cabeceras `X-RT-Time` (cuándo
 se generó la tabla) y `X-RT-Now` (hora del servidor al responder) indican el
 instante (epoch, ms) al que corresponden los minutos, sin fiarse del reloj del
-dispositivo.
+dispositivo. Si la petición fresca falla se sirve la última respuesta buena solo
+si tiene menos de 90 s (después, 502), y si la página no trae la tabla se
+devuelve vacío. `ALLOW_ORIGIN` (en `wrangler.toml`) lista los orígenes de navegador que pueden
+leer la respuesta: la web publicada y `http://localhost:8000` /
+`http://127.0.0.1:8000`. No restringe a `curl` u otros clientes; si despliegas tu
+Worker con otro dominio, edita esa lista.
 
 ## Despliegue automático
 

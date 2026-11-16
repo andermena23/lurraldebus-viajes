@@ -501,14 +501,14 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live.busy .live-body { opacity: .62; }
 .live-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .live-badge { display: inline-flex; align-items: center; gap: 6px; font-size: .7rem; font-weight: 700;
-  letter-spacing: .08em; color: var(--good); }
+  letter-spacing: .08em; color: var(--muted); }
 .live-state { font: inherit; }
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none;
-  animation: livepulse 2s ease-in-out infinite; }
+/* neutro por defecto (consultando, sin datos, aún no ha salido): solo «en vivo» se pinta verde y con pulso */
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live[data-state=live] .live-badge { color: var(--good); }
+.live[data-state=live] .live-dot { background: var(--good); animation: livepulse 2s ease-in-out infinite; }
 .live.is-est .live-badge { color: var(--warn); }
-.live.is-est .live-dot { background: var(--warn); animation: none; }
-.live[data-state=off] .live-badge { color: var(--muted); }
-.live[data-state=off] .live-dot { background: var(--muted); animation: none; }
+.live.is-est .live-dot { background: var(--warn); }
 .live-ago { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .live-refresh { margin-left: auto; flex: none; width: 44px; height: 44px; padding: 0;
   display: grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted); }
@@ -521,7 +521,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 
 .live-body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .live-body > * { margin: 0; }
-.live-body > .live-hero, .live-body > .live-headline, .live-body > .live-hero-sub, .live-body > .live-where, .live-body > .live-note, .live-body > .live-error { flex: 1 1 100%; }
+.live-body > .live-compact, .live-body > .live-hero, .live-body > .live-headline, .live-body > .live-hero-sub, .live-body > .live-where, .live-body > .live-note, .live-body > .live-error { flex: 1 1 100%; }
 .live-hero { display: flex; align-items: center; gap: 14px; }
 .live-eta { display: inline-flex; align-items: baseline; gap: 4px; color: var(--accent); }
 .live-eta b { font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
@@ -559,6 +559,8 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
 .live-where { padding-top: 10px; border-top: 1px solid var(--line); font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
 
 .live-note { font-size: .72rem; color: var(--muted); }
+.live-compact { font-size: .88rem; }
+.live-compact.live-sched { font-size: .8rem; }
 .live-off { margin-top: 10px; }
 
 .live-error p { margin: 4px 0 10px; font-size: .85rem; }
@@ -570,7 +572,7 @@ button.icon { padding: 6px 12px; font-size: 1.2rem; line-height: 1; min-width: 4
   .live-eta b { font-size: 2.3rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .live-dot, .live.busy .live-refresh svg, .detail li.is-bus::before { animation: none; }
+  .live[data-state=live] .live-dot, .live.busy .live-refresh svg, .detail li.is-bus::before { animation: none; }
 }
 
 /* avisos oficiales (plegables) y notas bajo los resultados */

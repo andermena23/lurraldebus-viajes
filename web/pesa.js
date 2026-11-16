@@ -30,5 +30,20 @@
     return STOPS.find((x) => x !== AIRPORT && (x.k === m || x.k.split(" ").includes(m) || m.startsWith(x.k + " "))) || null;
   }
 
-  return { URL, stopFor };
+  // Líneas con venta online en Pesa. Es la lista deducida de las paradas del formulario de Pesa (largo recorrido: Donostia-Bilbao,
+  // Donostia-Vitoria, aeropuerto...), no una lista oficial: hay que confirmarla en online.pesa.net. Las comarcales (DG10...),
+  // las a demanda (acabadas en E) y las nocturnas no se venden ahí.
+  const LINES = ["DO01", "DO02", "DO03", "DO04", "DG01", "DG02", "DG05", "DG05A", "DG05D", "DG07", "DG12"];
+  const lineKey = (t) => String(t || "").toLowerCase().replace(/\s+/g, "");
+  const LINE_KEYS = new Set(LINES.map(lineKey));
+
+  // ¿Se puede comprar este tramo en Pesa? Devuelve las paradas de Pesa de origen y destino, o null. Hace falta que la línea tenga
+  // venta online, que no sea a demanda y que las dos paradas existan en Pesa y sean distintas (Zumarraga→Urretxu cae en la misma).
+  function canBuy({ line, demand, from, to }) {
+    if (demand || !LINE_KEYS.has(lineKey(line))) return null;
+    const a = from && stopFor(from.muni, from.stop), b = to && stopFor(to.muni, to.stop);
+    return a && b && a !== b ? { from: a, to: b } : null;
+  }
+
+  return { URL, LINES, stopFor, canBuy };
 });

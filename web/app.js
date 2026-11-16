@@ -62,13 +62,32 @@
   const MKEY = "lb-mugi";
   const loadMugi = () => { try { return localStorage.getItem(MKEY) || ""; } catch (e) { return ""; } };
   const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
-  // Venta online: servicios de largo recorrido de Pesa (grupo Avanza). En un trasbordo, cada tramo de Pesa se compra por separado.
-  const AVANZA_OPS = new Set(["Pesa (Debagoiena)"]);
+  // Venta online: solo líneas de largo recorrido de Pesa (grupo Avanza); la regla (líneas, demanda, paradas) vive en web/pesa.js.
+  // Se mantiene la comprobación del operador porque otro operador podría tener códigos de línea parecidos.
+  // En un trasbordo, cada tramo de Pesa se compra por separado.
+  const PESA_AGENCY = "Pesa (Debagoiena)";
   // Compra en Pesa: ver web/pesa.js. Se abre su web, se copia la tarjeta y se indica qué elegir allí (no se puede rellenar desde fuera).
   const PESA_URL = PESA.URL;
-  const pesaStop = (si) => PESA.stopFor(eng.stopMuni(si), eng.stopName(si));
   const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
-  const buyable = (leg) => AVANZA_OPS.has(eng.line(leg.route).agency);
+  // Día en que sale el tramo: dep >= 1440 es ya el día siguiente a la fecha buscada, y dep < 0 el anterior.
+  const legDate = (date, dep) => addDays(date, Math.floor(dep / 1440));
+  // ¿Ya ha salido? Se compara con la hora de Madrid (la de los horarios), no con la del dispositivo; sin RT, cae a la local.
+  const departed = (date, dep) => {
+    const today = window.RT ? RT.today() : todayStr();
+    const now = window.RT ? RT.madridMin(Date.now()) : toMin(nowStr());
+    const day = legDate(date, dep);
+    return day < today || (day === today && dep - Math.floor(dep / 1440) * 1440 < now);
+  };
+  // Paradas de Pesa del tramo si se puede comprar, o null. Tampoco se ofrece un viaje que ya salió (hoy) ni de fechas pasadas.
+  const buyable = (leg) => {
+    const li = eng.line(leg.route);
+    if (li.agency !== PESA_AGENCY || departed(last.q.date, leg.dep)) return null;
+    return PESA.canBuy({
+      line: li.name, demand: li.demand,
+      from: { muni: eng.stopMuni(leg.from), stop: eng.stopName(leg.from) },
+      to: { muni: eng.stopMuni(leg.to), stop: eng.stopName(leg.to) },
+    });
+  };
   const routeKey = (r) => [r.o, r.d, r.os || "", r.ds || ""].join("|");
   const shortDay = (s) => {
     const t = todayStr();
@@ -565,18 +584,21 @@
     $("mugi").focus();
   }
 
-  // Copia el número de MUGI y abre Avanza (en el mismo gesto, para que el navegador no bloquee la ventana).
+  // Copia el número de MUGI y abre Avanza. Las dos cosas se lanzan de forma síncrona dentro del gesto del usuario: abrir la
+  // ventana desde el .then() del portapapeles queda fuera del gesto y Safari/iOS puede bloquearla. El orden importa: writeText
+  // se inicia ANTES que window.open (con la pestaña nueva el documento pierde el foco y la copia falla), y como solo se
+  // empieza a copiar (sin esperar), la nota se actualiza cuando la promesa se resuelve; si se rechaza, se enseña el número.
   function buy(btn) {
     const mugi = loadMugi().trim();
-    const leg = [...last.res.direct, ...last.res.transfer].flatMap((x) => x.legs).find((l) => l.trip === Number(btn.dataset.buy));
     const note = btn.parentNode.querySelector(".buy-note");
+    // El botón puede llevar abierto un rato: si el bus salió entretanto, no se abre nada.
+    if (departed(last.q.date, Number(btn.dataset.dep))) { note.textContent = "Este autobús ya ha salido."; return; }
     if (!mugi) { window.open(PESA_URL, "_blank", "noopener"); note.innerHTML = noMugi; return; }
-    // Copiar ANTES de abrir la pestaña: con la pestaña nueva el documento pierde el foco y el navegador rechaza la copia.
-    const done = (copied) => {
-      window.open(PESA_URL, "_blank", "noopener");
-      note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`;
-    };
-    if (navigator.clipboard) navigator.clipboard.writeText(mugi).then(() => done(true), () => done(false)); else done(false);
+    const say = (copied) => { note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`; };
+    let copy = null;
+    try { copy = navigator.clipboard ? navigator.clipboard.writeText(mugi) : null; } catch (e) {}
+    window.open(PESA_URL, "_blank", "noopener");
+    if (copy) copy.then(() => say(true), () => say(false)); else say(false);
   }
 
   function share(btn) {
@@ -888,18 +910,19 @@
 
   const safeUrl = (u) => (/^https?:\/\//i.test(u) ? u : "");
 
-  // Panel «EN VIVO» de un tramo. Solo se pinta si hay proxy configurado y la
-  // parada de subida tiene tablero oficial; los viajes de otros días no lo llevan.
+  // Panel de tiempo real de un tramo. Solo se pinta si hay proxy configurado, la parada de subida tiene tablero oficial y la
+  // línea lo cubre (rtEng.lineHasLive); los viajes de otros días no lo llevan. Nace neutro («TIEMPO REAL», sin punto de vivo)
+  // y solo pasa a «EN VIVO» cuando el resultado trae datos del tablero (ver setLiveState).
   function liveHtml(l) {
     if (!rtEng || !window.RT || !RT.available()) return "";
     const from = data.stops[l.from];
-    if (!from || !from[5]) return "";
+    if (!from || !from[5] || !rtEng.lineHasLive(l.route)) return "";
     const date = last.q.date;
     if (date !== RT.today())
       return `<p class="live-note live-off">El tiempo real solo está disponible para viajes de hoy.</p>`;
-    return `<div class="live" data-live="${l.trip}:${l.i}:${l.j}:${l.shift || 0}" data-date="${date}" aria-busy="true">
+    return `<div class="live" data-live="${l.trip}:${l.i}:${l.j}:${l.shift || 0}" data-date="${date}" data-state="loading" aria-busy="true">
       <div class="live-head">
-        <span class="live-badge"><span class="live-dot" aria-hidden="true"></span><b class="live-state">EN VIVO</b></span>
+        <span class="live-badge"><span class="live-dot" aria-hidden="true"></span><b class="live-state">TIEMPO REAL</b></span>
         <span class="live-ago"></span>
         <button type="button" class="live-refresh" data-live-refresh aria-label="Actualizar el tiempo real" title="Actualizar">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
@@ -908,6 +931,11 @@
       <div class="live-body"><p class="muted">Consultando el tablero oficial…</p></div></div>`;
   }
 
+  // Botón que abre el tablero oficial en la parada de subida (o la web, si esa parada no lo tiene).
+  const officialLink = (from) => from && from[5]
+    ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit">Abrir en la web oficial</button></form>`
+    : `<a href="https://lurraldebus.eus" target="_blank" rel="noopener">Abrir la web oficial</a>`;
+
   function liveError(r, l) {
     const from = data.stops[l.from];
     const msg = !r ? "No se pudo consultar el tiempo real."
@@ -915,9 +943,7 @@
       : r.reason === "sin-datos" ? "Esta parada no publica tiempo real en la web oficial."
       : r.reason === "sin-proxy" ? "Falta configurar el proxy del tiempo real en Ajustes."
       : "No se pudo consultar el tablero oficial." + (r.message ? ` (${esc(r.message)})` : "");
-    const official = from && from[5]
-      ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit">Abrir en la web oficial</button></form>`
-      : `<a href="https://lurraldebus.eus" target="_blank" rel="noopener">Abrir la web oficial</a>`;
+    const official = officialLink(from);
     const retry = !r || r.reason === "error" ? `<button type="button" data-live-refresh>Reintentar</button>` : "";
     return `<div class="live-error"><p>${msg}</p><div class="live-error-actions">${retry}
       ${official}</div></div>`;
@@ -926,15 +952,22 @@
   function liveBody(r, l) {
     if (!r || !r.ok) return liveError(r, l);
 
-    const sched = clockText(data.trips[l.trip][4][l.i] + (l.shift || 0));
+    const trip = data.trips[l.trip];
+    const sched = clockText(trip[4][l.i] + (l.shift || 0));
+
+    // Sin ninguna fila del tablero para este autobús: no se afirma nada (ni retraso, ni posición, ni «perdido»).
+    if (r.noData)
+      return `<div class="live-error"><p><b>Sin tiempo real para este autobús</b></p>
+        <p class="live-sched">Hora programada en tu parada: <b>${sched}</b></p>
+        <div class="live-error-actions">${officialLink(data.stops[l.from])}</div></div>`;
+    // Aún no ha salido y el tablero no lo trae: línea compacta con la salida programada, sin estética de vivo.
+    if (r.notStarted)
+      return `<p class="live-compact">Aún no ha salido · tiempo real disponible poco antes de la salida</p>
+        <p class="live-compact live-sched">Salida programada ${clockText(trip[5][0] + (l.shift || 0))}${l.i > 0 ? ` · en tu parada ${sched}` : ""}</p>`;
 
     // Titular: minutos hasta tu parada (o el estado del viaje).
     let minutes = null, label = "", clock = "", headline = "", tone = "none";
-    if (r.notStarted) {
-      minutes = Math.max(0, Math.round(r.eta || 0));
-      label = "para la salida";
-      if (r.etaClock) clock = `a las ${r.etaClock}`;
-    } else if (r.finished) {
+    if (r.finished) {
       headline = "El viaje ya ha terminado"; tone = "ended";
     } else if (r.passed) {
       headline = "Has perdido este autobús: ya pasó por tu parada"; tone = "lost";
@@ -962,33 +995,38 @@
     const occ = RT.occInfo(r.occupancy);
     const occLine = occ ? `<p class="live-occ ${occ.level}"><span class="live-occ-dot" aria-hidden="true"></span>Ocupación <b>${occ.label}</b> · ${occ.pct} %</p>` : "";
 
-    const where = r.notStarted
-      ? `Sale desde ${eng.stopName(l.from)}`
-      : RT.positionText(r.segFrom, r.atStop && r.segTo && r.segTo.index !== l.i
+    const where = r.beforeStart ? `Aún no ha salido de ${eng.stopName(trip[3][0])}` : RT.positionText(r.segFrom, r.atStop && r.segTo && r.segTo.index !== l.i
           ? { index: l.i, name: data.stops[l.from][0], muni: data.munis[data.stops[l.from][1]] } : r.segTo, r.atStop);
 
-    const note = r.source === "vivo"
+    // «vecinas»: el tablero de tu parada no trae este bus y la hora se deduce del retraso medido en paradas cercanas.
+    const note = r.etaSource === "vecinas"
+      ? "La hora en tu parada se estima a partir de paradas cercanas, donde sí aparece este bus. Posición estimada, sin GPS oficial."
+      : r.source === "vivo"
       ? "Posición estimada, sin GPS oficial: se deduce del tablero de paradas."
       : "Sin datos del tablero: posición y hora según el horario programado.";
     return `${hero}${delayLine}${occLine}${where ? `<p class="live-where">${esc(where)}</p>` : ""}
       <p class="live-note"><span aria-hidden="true">ⓘ</span> ${esc(note)}</p>`;
   }
 
-  // Cabecera del panel: distingue datos del tablero de una estimación del horario.
+  // Cabecera del panel: solo «EN VIVO» si hay datos del tablero; sin ellos, ni punto de vivo ni afirmaciones.
+  const LIVE_LABEL = { live: "EN VIVO", nodata: "SIN TIEMPO REAL", pending: "TIEMPO REAL", estimated: "SEGÚN HORARIO", off: "SIN DATOS" };
+  // «hace X»: updatedAt es hora del servidor, así que se compara con el reloj del dispositivo corregido con el desfase medido.
+  const agoNow = (skew) => Date.now() + (Number(skew) || 0);
   function setLiveState(el, r) {
-    const state = !r || !r.ok ? "off" : r.source === "vivo" ? "live" : "estimated";
+    const state = !r || !r.ok ? "off" : r.source === "vivo" ? "live" : r.noData ? "nodata" : r.notStarted ? "pending" : "estimated";
     el.dataset.state = state;
     el.classList.toggle("is-est", state === "estimated");
     el.classList.toggle("is-missed", !!(r && r.ok && r.passed && !r.finished)); // el bus ya pasó por tu parada: aviso en rojo
     el.classList.toggle("is-done", !!(r && r.ok && r.finished));
     markStops(el, r);
     const label = el.querySelector(".live-state");
-    if (label) label.textContent = state === "live" ? "EN VIVO" : state === "estimated" ? "SEGÚN HORARIO" : "SIN DATOS";
+    if (label) label.textContent = LIVE_LABEL[state];
     const ago = el.querySelector(".live-ago");
     if (ago) {
       if (r && r.ok && r.updatedAt) {
         ago.dataset.updated = r.updatedAt;
-        ago.textContent = `· ${RT.agoText(r.updatedAt, Date.now())}`;
+        ago.dataset.skew = r.skew || 0;
+        ago.textContent = `· ${RT.agoText(r.updatedAt, agoNow(r.skew))}`;
       } else {
         ago.textContent = "";
         delete ago.dataset.updated;
@@ -997,11 +1035,12 @@
   }
 
   // Etiqueta que el panel «escribe» en la parada de subida: lo que tardará el bus en llegar.
-  function boardingTag(r) {
-    if (!r || !r.ok || r.finished || r.passed) return "";
+  function boardingTag(r, first) {
+    // notStarted (sin fila) y noData solo tienen horario: no es dato en vivo, así que no se etiqueta
+    if (!r || !r.ok || r.finished || r.passed || r.noData || r.notStarted) return "";
     const m = r.eta == null ? null : Math.max(0, Math.round(r.eta));
     if (m == null) return "";
-    if (r.notStarted) return m === 0 ? "sale ahora" : `sale en ${m} min`;
+    if (r.beforeStart && first) return m === 0 ? "sale ahora" : `sale en ${m} min`;
     return m === 0 ? "llega ahora" : `llega en ${m} min`;
   }
 
@@ -1010,11 +1049,11 @@
   function markStops(el, r) {
     const leg = el.closest(".leg");
     if (!leg) return;
-    const ok = r && r.ok && !r.notStarted && r.busIndex != null;
+    const ok = r && r.ok && !r.notStarted && !r.noData && !r.beforeStart && r.busIndex != null;
     const bus = ok ? (r.finished ? Infinity : r.busIndex) : -1;
     const cur = ok && !r.finished ? Math.round(bus) : -1;
-    const tag = boardingTag(r);
     const board = Number(el.dataset.live.split(":")[1]);
+    const tag = boardingTag(r, board === 0);
     const missed = !!(r && r.ok && r.passed && !r.finished);
     for (const li of leg.querySelectorAll("ol:not(.alt-list) > li[data-p]")) {
       const p = Number(li.dataset.p);
@@ -1035,7 +1074,7 @@
   function updateAgo() {
     if (!window.RT) return;
     for (const el of document.querySelectorAll(".live-ago[data-updated]"))
-      el.textContent = `· ${RT.agoText(Number(el.dataset.updated), Date.now())}`;
+      el.textContent = `· ${RT.agoText(Number(el.dataset.updated), agoNow(el.dataset.skew))}`;
   }
 
   function abortLive() {
@@ -1126,12 +1165,12 @@
       if (alts.length) more = `<p class="alt-note">El mismo autobús sigue por ${esc(data.munis[dm])} y para también en:</p><ol class="alt-list">${alts.join("")}</ol>`;
     }
     const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${r.legs[1].dep - r.legs[0].arr} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
-    const po = buyable(l) && pesaStop(l.from), pd = buyable(l) && pesaStop(l.to);
-    const [yy, mm, dd] = last.q.date.split("-");
-    const buy = buyable(l)
-      ? `<div class="buy"><button type="button" data-buy="${l.trip}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
-        ${po && pd ? `<p class="buy-pick">En Pesa elige: <b>${esc(po.name)}</b> → <b>${esc(pd.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>` : ""}
-        <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi} No todos los viajes tienen venta online.</p></div>` : "";
+    const pb = buyable(l);
+    const [yy, mm, dd] = legDate(last.q.date, l.dep).split("-");
+    const buy = pb
+      ? `<div class="buy"><button type="button" data-buy="${l.trip}" data-dep="${l.dep}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
+        <p class="buy-pick">En Pesa elige: <b>${esc(pb.from.name)}</b> → <b>${esc(pb.to.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>
+        <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi}</p></div>` : "";
     // Tiempo real: formulario normal hacia lurraldebus.eus (sin proxy); solo en paradas que esa web conoce.
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";

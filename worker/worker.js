@@ -17,6 +17,9 @@ const UP = "https://lurraldebus.eus";
 const UA = "lurraldebus-viajes/1.0 (tiempo real; https://github.com/andermena23/lurraldebus-viajes)";
 const TTL = 15000; // ms
 const TIMEOUT = 12000; // ms
+// Antigüedad máxima de la última respuesta buena que se sirve cuando falla la petición fresca. Más allá, los minutos del
+// tablero ya no valen (el cliente calcularía ETAs negativas) y es mejor un 502 que un dato viejo.
+const STALE = 90000; // ms
 
 const MUNI_RE = /^\d{4}[0-9A-Z]{0,3}$/i; // 20069, 20036N01, 01008...
 const STOP_RE = /^\d{1,4}$/;
@@ -25,6 +28,9 @@ const STOP_RE = /^\d{1,4}$/;
 const cache = new Map();
 const inflight = new Map();
 
+// ALLOW_ORIGIN: "*" o lista separada por comas. Con lista se responde con el Origin de la petición si está permitido (el
+// navegador solo acepta un valor); si no, con el primero de la lista, de modo que el navegador lo bloquea. Vary: Origin va
+// siempre, para que ninguna caché intermedia reutilice la respuesta de un origen con otro.
 function cors(env, origin) {
   const allowed = ((env && env.ALLOW_ORIGIN) || "*").split(",").map((s) => s.trim()).filter(Boolean);
   const value = allowed.includes("*") ? "*" : allowed.includes(origin) ? origin : allowed[0] || "*";
@@ -45,10 +51,11 @@ const json = (data, status, extra) =>
 
 const fail = (status, text, extra) => json({ error: text }, status, extra);
 
-// El tablero es una página entera (~400 KB); nos quedamos solo con la tabla.
+// El tablero es una página entera (~400 KB); nos quedamos solo con la tabla. Si no aparece (la web cambió o devolvió otra
+// cosa), cadena vacía: el cliente lo trata como un tablero sin filas, en vez de recibir la página entera.
 function extractTable(html) {
   const m = html.match(/<div class="live-lines-content">[\s\S]*?<\/table>/i);
-  return m ? m[0] : html;
+  return m ? m[0] : "";
 }
 
 async function fetchBoard(muni, stop) {
@@ -71,7 +78,7 @@ async function fetchBoard(muni, stop) {
   }
 }
 
-// Devuelve la última respuesta buena si una petición fresca falla.
+// Devuelve la última respuesta buena si una petición fresca falla, pero solo si tiene menos de STALE.
 function cached(key, fetcher) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.ts < TTL) return Promise.resolve(hit.value);
@@ -85,7 +92,7 @@ function cached(key, fetcher) {
     })
     .catch((e) => {
       inflight.delete(key);
-      if (hit) return hit.value; // si falla una petición fresca, servimos la última buena
+      if (hit && Date.now() - hit.ts < STALE) return hit.value; // si falla una petición fresca, servimos la última buena (no muy vieja)
       throw e;
     });
   inflight.set(key, p);
@@ -94,14 +101,12 @@ function cached(key, fetcher) {
 
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: cors(env, "") });
-    }
-    if (request.method !== "GET") return fail(405, "Solo GET");
-
-    const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
     const head = cors(env, origin);
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: head });
+    if (request.method !== "GET") return fail(405, "Solo GET", head);
+
+    const url = new URL(request.url);
 
     try {
       if (url.pathname === "/health") {

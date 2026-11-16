@@ -9,14 +9,17 @@
   const URL = "https://online.pesa.net/index.asp?id=es";
   // Sin tildes ni mayúsculas, guiones como espacios y "itsaso"="itxaso" (los datos escriben Ezkio-Itsaso, Pesa EZKIO-ITXASO).
   const key = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[-\s]+/g, " ").trim().replace("itsaso", "itxaso");
-  // Orígenes/destinos de Pesa tal cual los muestra su formulario. Unos son municipios y otros paradas concretas
-  // (SAN PRUDENTZIO es una parada de Arrasate, ARLABAN un puerto), y el billete hay que sacarlo desde la parada que toca.
-  const STOPS = ["ABADIÑO", "AEROPUERTO BILBAO", "ALEGIA", "ANDOAIN", "ANTZUOLA", "ARETXABALETA", "ARLABAN",
-    "ARRASATE-MONDRAGON", "ARROIABE", "ATXONDO", "BEASAIN", "BERGARA", "BILBAO", "DONOSTIA-SAN SEBASTIAN", "DURANA",
-    "DURANGO", "EIBAR", "ELGETA", "ELGOIBAR", "ELORRIO", "ERMUA", "ESKORIATZA", "EZKIO-ITXASO", "IKAZTEGIETA",
-    "ITSASONDO", "LANDA", "LASARTE", "LEGORRETA", "MENDIBIL", "OÑATI", "ORDIZIA", "ORMAIZTEGI", "SAN PRUDENTZIO",
-    "SORALUZE-PLACEN", "TOLOSA", "ULLIBARRI GAMBOA", "VILLABONA", "VITORIA-GASTEIZ", "ZARAUTZ", "ZUMARRAGA-URRETXU"]
-    .map((name) => ({ name, k: key(name) }));
+  // Orígenes/destinos de Pesa tal cual los envía su formulario ("código/NOMBRE"). Unos son municipios y otros paradas
+  // concretas (SAN PRUDENTZIO es de Arrasate, ARLABAN un puerto), y el billete hay que sacarlo desde la parada que toca.
+  // El código hace falta para rellenar el formulario desde el comparador (web/pesa-autofill.js).
+  const STOPS = ["3/ABADIÑO", "130/AEROPUERTO BILBAO", "12/ALEGIA", "15/ANDOAIN", "7/ANTZUOLA", "24/ARETXABALETA",
+    "26/ARLABAN", "23/ARRASATE-MONDRAGON", "43/ARROIABE", "84/ATXONDO", "10/BEASAIN", "6/BERGARA", "1/BILBAO",
+    "20/DONOSTIA-SAN SEBASTIAN", "45/DURANA", "2/DURANGO", "19/EIBAR", "5/ELGETA", "21/ELGOIBAR", "4/ELORRIO",
+    "18/ERMUA", "25/ESKORIATZA", "173/EZKIO-ITXASO", "174/IKAZTEGIETA", "176/ITSASONDO", "39/LANDA", "16/LASARTE",
+    "175/LEGORRETA", "44/MENDIBIL", "32/OÑATI", "11/ORDIZIA", "9/ORMAIZTEGI", "33/SAN PRUDENTZIO",
+    "22/SORALUZE-PLACEN", "13/TOLOSA", "42/ULLIBARRI GAMBOA", "14/VILLABONA", "30/VITORIA-GASTEIZ", "220/ZARAUTZ",
+    "8/ZUMARRAGA-URRETXU"]
+    .map((v) => ({ code: v, name: v.slice(v.indexOf("/") + 1), k: key(v.slice(v.indexOf("/") + 1)) }));
   const AIRPORT = STOPS.find((x) => x.k === "aeropuerto bilbao");
 
   // Parada de Pesa para una parada nuestra, o null si no hay equivalente. Primero por el nombre exacto de la parada (San Prudentzio

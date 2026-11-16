@@ -62,12 +62,18 @@
   const MKEY = "lb-mugi";
   const loadMugi = () => { try { return localStorage.getItem(MKEY) || ""; } catch (e) { return ""; } };
   const storeMugi = (v) => { try { v ? localStorage.setItem(MKEY, v) : localStorage.removeItem(MKEY); } catch (e) {} };
+  // Relleno automático en la web de Pesa: activo por defecto, se puede apagar en Ajustes.
+  const AKEY = "lb-pesa-auto";
+  const loadAuto = () => { try { return localStorage.getItem(AKEY) !== "0"; } catch (e) { return true; } };
+  const storeAuto = (v) => { try { localStorage.setItem(AKEY, v ? "1" : "0"); } catch (e) {} };
   // Venta online: solo líneas de largo recorrido de Pesa (grupo Avanza); la regla (líneas, demanda, paradas) vive en web/pesa.js.
   // Se mantiene la comprobación del operador porque otro operador podría tener códigos de línea parecidos.
   // En un trasbordo, cada tramo de Pesa se compra por separado.
   const PESA_AGENCY = "Pesa (Debagoiena)";
-  // Compra en Pesa: ver web/pesa.js. Se abre su web, se copia la tarjeta y se indica qué elegir allí (no se puede rellenar desde fuera).
+  // Compra en Pesa: ver web/pesa.js. Con el service worker activo se abre su web con el viaje marcado para rellenarlo
+  // automáticamente (web/pesa-autofill.js); si no, se abre tal cual, se copia la tarjeta y se indica qué elegir allí.
   const PESA_URL = PESA.URL;
+  const PESA_AUTO_URL = PESA_URL + (PESA_URL.includes("?") ? "&" : "?") + "lb=1";
   const noMugi = `Guarda tu número de MUGI en <button type="button" class="link" data-settings>Ajustes</button> para que se copie al comprar.`;
   // Día en que sale el tramo: dep >= 1440 es ya el día siguiente a la fecha buscada, y dep < 0 el anterior.
   const legDate = (date, dep) => addDays(date, Math.floor(dep / 1440));
@@ -200,6 +206,8 @@
       $("mugi-clear").hidden = !$("mugi").value;
     });
     $("mugi-clear").addEventListener("click", () => { $("mugi").value = ""; storeMugi(""); $("mugi-clear").hidden = true; $("mugi").focus(); });
+    $("pesa-auto").checked = loadAuto();
+    $("pesa-auto").addEventListener("change", () => storeAuto($("pesa-auto").checked));
     // proxy del tiempo real: URL del Worker (o del proxy local)
     if (window.RT) {
       $("rtproxy").value = RT.getProxy();
@@ -584,16 +592,27 @@
     $("mugi").focus();
   }
 
-  // Copia el número de MUGI y abre Avanza. Las dos cosas se lanzan de forma síncrona dentro del gesto del usuario: abrir la
-  // ventana desde el .then() del portapapeles queda fuera del gesto y Safari/iOS puede bloquearla. El orden importa: writeText
-  // se inicia ANTES que window.open (con la pestaña nueva el documento pierde el foco y la copia falla), y como solo se
-  // empieza a copiar (sin esperar), la nota se actualiza cuando la promesa se resuelve; si se rechaza, se enseña el número.
+  // Abre Avanza con el viaje relleno (si el service worker controla la página) o, si no, copia el MUGI y abre la web
+  // indicando qué elegir. En los dos casos la ventana se abre dentro del gesto del usuario: Safari/iOS bloquea abrirla
+  // desde el .then() del portapapeles. El viaje viaja por postMessage al SW, nunca por la URL ni por logs.
   function buy(btn) {
     const mugi = loadMugi().trim();
     const note = btn.parentNode.querySelector(".buy-note");
     // El botón puede llevar abierto un rato: si el bus salió entretanto, no se abre nada.
     if (departed(last.q.date, Number(btn.dataset.dep))) { note.textContent = "Este autobús ya ha salido."; return; }
+    const ctrl = navigator.serviceWorker && navigator.serviceWorker.controller;
+    const spec = { o: btn.dataset.po, d: btn.dataset.pd, f: btn.dataset.pf, h: btn.dataset.ph, t: mugi.replace(/\s/g, "") };
+    if (loadAuto() && ctrl && spec.o && spec.d) {
+      // El viaje viaja por postMessage al SW, nunca por la URL: el MUGI no acaba en historiales ni en logs.
+      ctrl.postMessage({ type: "pesa-autofill", spec });
+      window.open(PESA_AUTO_URL, "_blank", "noopener");
+      note.textContent = mugi
+        ? "Se abrirá Pesa con el viaje y tu MUGI rellenos. Revisa la tarifa y paga allí."
+        : "Se abrirá Pesa con el viaje relleno. Añade tu MUGI en Ajustes para que también se rellene.";
+      return;
+    }
     if (!mugi) { window.open(PESA_URL, "_blank", "noopener"); note.innerHTML = noMugi; return; }
+    // writeText se inicia ANTES que window.open: con la pestaña nueva el documento pierde el foco y la copia falla.
     const say = (copied) => { note.textContent = copied ? "Número de MUGI copiado: pégalo en el campo de tarjeta de Pesa." : `No se pudo copiar. Tu número: ${mugi}`; };
     let copy = null;
     try { copy = navigator.clipboard ? navigator.clipboard.writeText(mugi) : null; } catch (e) {}
@@ -1167,10 +1186,16 @@
     const gap = k > 0 ? `<p class="transfer-note">Trasbordo en ${esc(eng.stopMuni(r.legs[0].to))}: ${r.legs[1].dep - r.legs[0].arr} min de espera${r.walk ? `, ~${r.walk} m a pie entre paradas` : ""}</p>` : "";
     const pb = buyable(l);
     const [yy, mm, dd] = legDate(last.q.date, l.dep).split("-");
+    const depMin = l.dep - Math.floor(l.dep / 1440) * 1440;
+    const hhmm = `${pad(Math.floor(depMin / 60))}:${pad(depMin % 60)}`;
+    const auto = loadAuto() && navigator.serviceWorker && navigator.serviceWorker.controller && pb && pb.from.code && pb.to.code;
+    const buyNote = auto
+      ? (loadMugi().trim() ? "Se rellenará el viaje y tu MUGI en Pesa; revisa y paga allí." : "Se rellenará el viaje en Pesa. Guarda tu MUGI en Ajustes para que también se rellene.")
+      : (loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi);
     const buy = pb
-      ? `<div class="buy"><button type="button" data-buy="${l.trip}" data-dep="${l.dep}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
+      ? `<div class="buy"><button type="button" data-buy="${l.trip}" data-dep="${l.dep}" data-po="${esc(pb.from.code)}" data-pd="${esc(pb.to.code)}" data-pf="${dd}/${mm}/${yy}" data-ph="${hhmm}">${r.transfers ? `Comprar ${esc(li.name)} en Avanza` : "Comprar en Avanza"}</button>
         <p class="buy-pick">En Pesa elige: <b>${esc(pb.from.name)}</b> → <b>${esc(pb.to.name)}</b> · <b>${dd}/${mm}/${yy}</b></p>
-        <p class="muted buy-note">${loadMugi().trim() ? "Se abrirá la web de compra y se copiará tu número de MUGI." : noMugi}</p></div>` : "";
+        <p class="muted buy-note">${buyNote}</p></div>` : "";
     // Tiempo real: formulario normal hacia lurraldebus.eus (sin proxy); solo en paradas que esa web conoce.
     const from = data.stops[l.from];
     const rt = from[5] ? `<form class="rt" method="post" action="https://lurraldebus.eus/real/result" target="_blank" rel="noopener"><input type="hidden" name="_method" value="POST"><input type="hidden" name="data[Real][municipioId]" value="${from[5]}"><input type="hidden" name="data[Real][paradaId]" value="${esc(from[4])}"><button type="submit" title="Abre lurraldebus.eus con los minutos de espera y la ocupación en ${esc(from[0])}">Tiempo real</button></form>` : "";

@@ -6,6 +6,18 @@ on:
   schedule:
     - cron: "17 4 * * *"   # cada día: refresca los horarios y vuelve a publicar
   workflow_dispatch:
+    # Permite publicar una rama sin mergear (por ejemplo, para probar una funcionalidad en la URL pública).
+    inputs:
+      ref:
+        description: "Rama o commit a publicar (vacío = rama por defecto)"
+        required: false
+        type: string
+        default: ""
+      refresh_data:
+        description: "Volver a descargar los GTFS antes de publicar"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # guardar network.json actualizado
@@ -21,13 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # En la ejecución diaria (o manual) se vuelven a bajar los GTFS; en un push se publica lo que hay.
+      # En la ejecución diaria (o manual con refresh_data) se bajan los GTFS; en un push o en una preview se publica lo que hay.
       - name: Actualizar datos GTFS
-        if: github.event_name != 'push'
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_data)
         # Si los datos nuevos no pasan las comprobaciones (feed roto), se sigue publicando el network.json del repo
         # en vez de dejar la web sin desplegar; el aviso queda en el resumen de la ejecución.
         run: |
@@ -39,11 +53,12 @@ jobs:
           node test/search.test.js
           node test/realtime.test.js
           node test/pesa.test.js
+          node test/pesa-autofill.test.js
           node test/holidays.test.js
           node test/fares.test.js
 
       - name: Guardar los datos nuevos en el repo
-        if: github.event_name != 'push'
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_data)
         run: |
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"

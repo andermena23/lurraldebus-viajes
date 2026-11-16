@@ -46,14 +46,22 @@ bajada** y, en el último tramo, las otras paradas del municipio destino por las
   necesarios, y excluidas de «Próximo». Se pueden ocultar con el filtro *A demanda*.
 - **Tiempo real** al desplegar un viaje de hoy en líneas que el tablero oficial cubre (ver [Tiempo real](#tiempo-real)),
   además del botón «Tiempo real» que abre lurraldebus.eus en esa parada.
-- **Comprar billetes**: en los tramos de Pesa (largo recorrido) con venta online, «Comprar en Avanza» copia tu número de
-  MUGI (se guarda en el navegador desde el engranaje de Ajustes) y abre la web de venta, indicando origen, destino y
-  fecha con los nombres de Pesa (p. ej. San Prudentzio se compra desde San Prudentzio, no desde Arrasate). El botón solo
-  sale si la línea está en la lista de `web/pesa.js` (la deducida del formulario de Pesa: DO01-04, DG01, DG02, DG05, DG05A,
-  DG05D, DG07 y DG12; pendiente de confirmar en online.pesa.net), no es a demanda, origen y destino existen en Pesa y son
-  paradas distintas (Zumarraga→Urretxu es la misma), y el viaje no ha salido ya. Las líneas comarcales, a demanda y
-  nocturnas no se venden ahí. Pesa no admite rellenar el viaje desde fuera (rechaza los POST de otras webs y no acepta el
-  viaje en la URL), así que el resto se elige a mano.
+- **Comprar billetes**: en los tramos de Pesa (largo recorrido) con venta online, «Comprar en Avanza» abre la web de venta
+  con el origen, el destino, la fecha y tu MUGI rellenos, y **el autobús concreto ya seleccionado**: solo queda revisar la
+  tarifa y pagar. El número de MUGI se guarda en el navegador desde el engranaje de Ajustes, donde también se puede
+  desactivar esta automatización. El botón solo sale si la línea está en la lista de `web/pesa.js` (la deducida del
+  formulario de Pesa: DO01-04, DG01, DG02, DG05, DG05A, DG05D, DG07 y DG12; pendiente de confirmar en online.pesa.net),
+  no es a demanda, origen y destino existen en Pesa y son paradas distintas (Zumarraga→Urretxu es la misma), y el viaje
+  no ha salido ya. Las líneas comarcales, a demanda y nocturnas no se venden ahí. San Prudentzio se compra desde San
+  Prudentzio, no desde Arrasate.
+
+  Pesa rechaza los POST de otras webs (403) y no admite el viaje en la URL, así que el relleno se hace ejecutando código
+  **dentro de la propia página de Pesa**: el service worker de la PWA intercepta la navegación que abre el botón e inyecta
+  el script de `web/pesa-autofill.js` en la respuesta. La página sigue en `online.pesa.net`, con su sesión y sus cookies
+  reales, y el pago **no pasa por ningún servidor nuestro**. El viaje se pasa al service worker con `postMessage` (el MUGI
+  nunca va en la URL). Si el navegador no permite la intercepción o Pesa cambia su HTML, se abre la web tal cual, se copia
+  el MUGI y se indican a mano origen, destino y fecha. El relleno se detiene antes del pago: la compra y el pago se hacen
+  siempre en Pesa.
 
 ### Comparar y consultar líneas
 
@@ -179,7 +187,7 @@ python3 scripts/build_data.py     # refrescar datos (--accept-drops si una líne
 python3 scripts/build_fares.py    # refrescar tarifas (cuando cambien)
 python3 scripts/dev_proxy.py      # proxy local del tiempo real
 python3 -m http.server -d web     # abrir http://localhost:8000
-for t in data search realtime pesa holidays fares; do node test/$t.test.js; done
+for t in data search realtime pesa pesa-autofill holidays fares; do node test/$t.test.js; done
 ```
 
 Las fechas de los tests son relativas a la vigencia de los datos.
@@ -192,7 +200,8 @@ Las fechas de los tests son relativas a la vigencia de los datos.
 | `web/search.js` | Motor de búsqueda (directos + 1 trasbordo) y horario de línea; sin dependencias, funciona en navegador y Node. |
 | `web/realtime.js` | Tablero oficial: parser, casado con el horario y estimación de posición/retraso. |
 | `web/holidays.js`, `web/fares.js` | Festivos habituales y tarifa por saltos de zona. |
-| `web/pesa.js` | Compra en Pesa: emparejar nuestras paradas con las suyas. |
+| `web/pesa.js` | Compra en Pesa: emparejar nuestras paradas con las suyas (incluidos los códigos de su formulario). |
+| `web/pesa-autofill.js` | Relleno inyectado en la web de Pesa: casar el viaje con sus resultados y marcar el autobús. |
 | `web/app.js`, `index.html`, `style.css`, `theme.js` | Interfaz. |
 | `web/sw.js`, `manifest.webmanifest`, `icons/` | PWA. |
 | `worker/` | Proxy CORS en Cloudflare Worker (`/health`, `/board`). |
@@ -259,6 +268,9 @@ falta abrir la app dos veces para ver los datos nuevos.
 
 ### Mantenimiento
 
+- El relleno automático de la compra depende de que el navegador permita al service worker interceptar navegaciones a
+  otro origen (en iOS Safari puede no estar soportado) y de la estructura del HTML de Pesa: si cambia, se cae al modo
+  manual sin dejar de abrir la web de compra. No está garantizado por Pesa ni forma parte de un acuerdo con ellos.
 - Si Lurraldebus añade un operador nuevo, hay que añadir su feed a mano en `FEEDS` (`scripts/build_data.py`).
 - `build_data.py` depende de la estructura de la página de MobilityDatabase (de ahí saca el último zip de cada feed); si
   cambia, habrá que adaptarlo. El espejo también puede publicar de vez en cuando un feed incompleto (ver

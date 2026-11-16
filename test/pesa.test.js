@@ -36,6 +36,7 @@ for (const r of res.direct) {
 const buy = (line, a, b, demand) => P.canBuy({ line, demand: !!demand, from: { muni: a[0], stop: a[1] }, to: { muni: b[0], stop: b[1] } });
 const ok = buy("DO01", ["Donostia", "Donostiako Autobus Geltokia"], ["Bilbao", "Termibus"]);
 assert.deepStrictEqual([ok.from.name, ok.to.name], ["DONOSTIA-SAN SEBASTIAN", "BILBAO"]);
+assert.deepStrictEqual([ok.from.code, ok.to.code], ["20/DONOSTIA-SAN SEBASTIAN", "1/BILBAO"]); // códigos que envía su formulario
 assert(buy(" do01 ", ["Donostia", "Geltokia"], ["Bilbao", "Termibus"]), "la línea se compara sin mayúsculas ni espacios");
 assert.strictEqual(buy("DG10", ["Arrasate", "Geltokia"], ["Bergara", "Geltokia"]), null); // comarcal: sin venta online
 assert.strictEqual(buy("DG20E", ["Bergara", "Geltokia"], ["Elgeta", "Plaza"], true), null); // a demanda
